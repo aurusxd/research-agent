@@ -105,20 +105,6 @@ async def ask_agent(user_message: str) -> str:
         },
     ]
 
-    first_response = client.chat.completions.create(
-        model="deepseek-v4-flash",
-        messages=messages,
-        tools=tools,
-        tool_choice="auto",
-    )
-
-    message = first_response.choices[0].message
-
-    if not message.tool_calls:
-        return message.content
-
-    messages.append(message)
-
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(
             model="deepseek-v4-flash",
@@ -132,32 +118,58 @@ async def ask_agent(user_message: str) -> str:
         messages.append(message)
 
         if not message.tool_calls:
-            return message.content or "Задача завершена без текстового ответа."
+            return message.content or "Задача завершена."
 
+        # Обязательно ответить на КАЖДЫЙ tool_call
         for tool_call in message.tool_calls:
-            function_name = tool_call.function.name
-            arguments = json.loads(tool_call.function.arguments)
-            function = available_tools[function_name]
+            try:
+                function_name = tool_call.function.name
+                function = available_tools.get(function_name)
 
-            tool_result = function(**arguments)
-            if inspect.isawaitable(tool_result):
-                tool_result = await tool_result
+                if function is None:
+                    raise ValueError(
+                        f"Неизвестный инструмент: {function_name}"
+                    )
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(
-                    tool_result,
+                arguments = json.loads(
+                    tool_call.function.arguments
+                )
+
+                tool_result = function(**arguments)
+
+                if inspect.isawaitable(tool_result):
+                    tool_result = await tool_result
+
+                content = json.dumps(
+                    {
+                        "success": True,
+                        "result": tool_result,
+                    },
                     ensure_ascii=False,
                     default=str,
-                ),
-            })
+                )
 
+            except Exception as error:
+                # Даже при ошибке инструмента необходимо добавить
+                # сообщение с соответствующим tool_call_id.
+                content = json.dumps(
+                    {
+                        "success": False,
+                        "error": str(error),
+                    },
+                    ensure_ascii=False,
+                )
 
-    second_response = client.chat.completions.create(
-        model="deepseek-v4-flash",
-        messages=messages,
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": content,
+                }
+            )
+
+    return (
+        "Не удалось завершить задачу: "
+        "превышено число вызовов инструментов."
     )
-
-    return second_response.choices[0].message.content
 
