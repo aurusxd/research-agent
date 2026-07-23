@@ -29,7 +29,8 @@ async def save_contact(
         preferred_channel: str | None = None,
         generated_message: str | None = None,
     ) -> dict:
-        log.info("Зашел в save_contact")
+    log.info("Зашел в save_contact")
+    try:
         data = SaveContactToolArgs(
             organization_name=organization_name,
             contact_name=contact_name,
@@ -84,4 +85,11 @@ async def save_contact(
             "status": "created",
             "contact_id": contact.id,
             "message": "Организация сохранена",
+        }
+    except Exception as e:
+        log.exception("Ошибка сохранения")
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Ошибка сохранения",
         }
