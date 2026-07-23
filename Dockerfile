@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -29,5 +29,6 @@ RUN uv sync \
     --frozen \
     --no-dev
 
-
+FROM base AS runtime
 CMD ["uv", "run", "python", "main.py"]
+
