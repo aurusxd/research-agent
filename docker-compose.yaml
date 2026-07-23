@@ -13,7 +13,7 @@ services:
     ports:
       - "5433:5432"
 
-    bot:
+  bot:
       build:
         context: .
         target: bot
@@ -36,7 +36,7 @@ services:
         - .env
       depends_on:
         - db
-    migrations:
+  migrations:
       build:
         context: .
         target: runtime
