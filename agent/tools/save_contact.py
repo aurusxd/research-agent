@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.session import provider
 from database.repositories.contact_repository import ContactRepository
 from schemas.save_contact_schema import SaveContactToolArgs
-   
+from services.logger import log
 
 @provider.inject_session
 async def save_contact(
@@ -29,6 +29,7 @@ async def save_contact(
         preferred_channel: str | None = None,
         generated_message: str | None = None,
     ) -> dict:
+        log.info("Зашел в save_contact")
         data = SaveContactToolArgs(
             organization_name=organization_name,
             contact_name=contact_name,

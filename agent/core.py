@@ -7,6 +7,7 @@ from openai import OpenAI
 from agent.tools.web_search import search_web
 from agent.tools.save_contact import save_contact
 from schemas.save_contact_schema import SaveContactToolArgs
+import inspect
 load_dotenv()
 
 client = OpenAI(
@@ -14,6 +15,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
+MAX_TOOL_ROUNDS = 20
 
 tools = [
     {
@@ -117,19 +119,40 @@ async def ask_agent(user_message: str) -> str:
 
     messages.append(message)
 
-    for tool_call in message.tool_calls:
-        function_name = tool_call.function.name
-        arguments = json.loads(tool_call.function.arguments)
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            extra_body={"thinking": {"type": "disabled"}},
+        )
 
-        tool_result = available_tools[function_name](**arguments)
+        message = response.choices[0].message
+        messages.append(message)
 
-        messages.append(
-            {
+        if not message.tool_calls:
+            return message.content or "Задача завершена без текстового ответа."
+
+        for tool_call in message.tool_calls:
+            function_name = tool_call.function.name
+            arguments = json.loads(tool_call.function.arguments)
+            function = available_tools[function_name]
+
+            tool_result = function(**arguments)
+            if inspect.isawaitable(tool_result):
+                tool_result = await tool_result
+
+            messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
-                "content": str(tool_result),
-            }
-        )
+                "content": json.dumps(
+                    tool_result,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            })
+
 
     second_response = client.chat.completions.create(
         model="deepseek-v4-flash",
