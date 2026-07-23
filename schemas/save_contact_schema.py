@@ -42,6 +42,11 @@ class SaveContactToolArgs(BaseModel):
         description="Публичный телефон организации",
     )
 
+    contact_form_url: str | None = Field(
+        default=None,
+        description="Прямая ссылка на официальную форму обратной связи организации",
+    )
+
     vk_url: str | None = Field(
         default=None,
         description="Ссылка на официальную страницу организации во ВКонтакте",

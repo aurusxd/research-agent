@@ -38,6 +38,7 @@ class Contact(Base):
     website: Mapped[str | None] = mapped_column(String(500))
     email: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(50))
+    contact_form_url: Mapped[str | None] = mapped_column(String(500))
 
     vk_url: Mapped[str | None] = mapped_column(String(500))
     telegram_url: Mapped[str | None] = mapped_column(String(500))
