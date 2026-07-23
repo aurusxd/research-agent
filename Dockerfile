@@ -30,5 +30,7 @@ RUN uv sync \
     --no-dev
 
 FROM base AS runtime
+FROM runtime AS bot
 CMD ["uv", "run", "python", "main.py"]
+
 
