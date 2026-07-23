@@ -88,12 +88,33 @@ class SaveContactToolArgs(BaseModel):
 
     preferred_channel: str | None = Field(
         default=None,
-        description="Предпочтительный канал: email, phone, telegram или vk",
+        description=(
+            "Предпочтительный канал: email, contact_form, phone, vk, telegram, "
+            "ok, reddit или другой публичный канал"
+        ),
     )
 
     generated_message: str | None = Field(
         default=None,
-        description="Персонализированное коммерческое сообщение",
+        description=(
+            "Персонализированный черновик приглашения для проверки человеком"
+        ),
+    )
+
+    recipient_address: str | None = Field(
+        default=None,
+        description=(
+            "Публичный адрес выбранного получателя: email, ссылка на профиль, "
+            "сообщество, канал или официальную форму связи"
+        ),
+    )
+
+    recipient_external_id: str | None = Field(
+        default=None,
+        description=(
+            "Проверенный ID пользователя или сообщества внутри выбранной "
+            "платформы; null, если ID достоверно не определён"
+        ),
     )
 
 class SaveContactToolResult(BaseModel):

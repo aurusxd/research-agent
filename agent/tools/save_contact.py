@@ -4,6 +4,7 @@ from database.session import provider
 from database.repositories.contact_repository import ContactRepository
 from schemas.save_contact_schema import SaveContactToolArgs
 from services.logger import log
+from utils.enums import ContactStatus
 
 @provider.inject_session
 async def save_contact(
@@ -29,6 +30,8 @@ async def save_contact(
         dzen_url: str | None = None,
         preferred_channel: str | None = None,
         generated_message: str | None = None,
+        recipient_address: str | None = None,
+        recipient_external_id: str | None = None,
     ) -> dict:
     log.info("Зашел в save_contact")
     try:
@@ -54,6 +57,8 @@ async def save_contact(
             relevance_reason=relevance_reason,
             preferred_channel=preferred_channel,
             generated_message=generated_message,
+            recipient_address=recipient_address,
+            recipient_external_id=recipient_external_id,
         )
 
         repository = ContactRepository(session)
@@ -78,7 +83,8 @@ async def save_contact(
             mode="json",
         )
 
-        contact_data["status"] = "new"
+        contact_data["status"] = ContactStatus.PENDING_REVIEW.value
+        contact_data["next_action"] = "Требуется проверка человеком"
 
         contact = await repository.create(contact_data)
 

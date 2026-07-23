@@ -16,6 +16,8 @@ class ContactCreate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     contact_form_url: str | None = None
+    recipient_address: str | None = None
+    recipient_external_id: str | None = None
 
     vk_url: str | None = None
     telegram_url: str | None = None
@@ -49,6 +51,8 @@ class ContactUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     contact_form_url: str | None = None
+    recipient_address: str | None = None
+    recipient_external_id: str | None = None
 
     vk_url: str | None = None
     telegram_url: str | None = None

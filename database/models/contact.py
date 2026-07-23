@@ -59,7 +59,12 @@ class Contact(Base):
         String(50),
         default=ContactStatus.NEW,
     )
-
+    recipient_address: Mapped[str | None] = mapped_column(
+        String(500)
+    )
+    recipient_external_id: Mapped[str | None] = mapped_column(
+        String(255)
+    )
     generated_message: Mapped[str | None] = mapped_column(Text)
     response: Mapped[str | None] = mapped_column(Text)
     next_action: Mapped[str | None] = mapped_column(Text)
