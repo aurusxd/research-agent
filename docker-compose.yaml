@@ -25,11 +25,12 @@ services:
 
     depends_on:
       - db
+      - api
   api:
     build:
       context: .
       target: runtime
-    command: uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
+    command: uv run uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     env_file:

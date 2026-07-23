@@ -3,7 +3,7 @@ from typing import Any
 
 import aiohttp
 
-API_URL = "http://127.0.0.1:8000/ask"
+API_URL = "http://api:8000/ask"
 MAX_USER_SESSIONS = 50
 SESSION_TIMEOUT_SECONDS = 200
 
