@@ -4,8 +4,15 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 import aiohttp
 
-from api.client import ApiClient, EmptyResponseError, ResponseValidationError
+from api.client import (
+    ApiClient,
+    EmptyResponseError,
+    InvalidReviewResponseError,
+    ResponseValidationError,
+)
 from services.logger import log
+from telegram.keyboards.main import keyboard_build
+from telegram.review import build_review_card
 
 
 class BotCommandHandler:
@@ -55,8 +62,44 @@ class BotCommandHandler:
         log.info("Вызвана команда /start")
         await message.answer("Бот запущен")
 
+    async def review(self, message: Message) -> None:
+        """Показывает первый контакт из очереди проверки."""
+        user_id = str(message.from_user.id)
+
+        try:
+            contacts = await self.api_client.get_review_queue(user_id)
+        except aiohttp.ClientResponseError as exc:
+            await message.answer(
+                f"Ошибка API {exc.status}: не удалось получить очередь"
+            )
+            return
+        except InvalidReviewResponseError:
+            await message.answer("API вернул некорректную очередь контактов")
+            return
+        except Exception:  # noqa: BLE001
+            log.exception("Ошибка получения контактов")
+            await message.answer("Не удалось получить контакты на проверку")
+            return
+
+        if not contacts:
+            await message.answer("Нет контактов на проверку")
+            return
+
+        contact = contacts[0]
+        contact_id = contact.get("id")
+        if not isinstance(contact_id, int):
+            await message.answer("API вернул контакт без корректного ID")
+            return
+
+        await message.answer(
+            build_review_card(contact),
+            reply_markup=keyboard_build(contact_id),
+        )
 
     async def on_startup(self, dispatcher: Dispatcher, bot: Bot):  # noqa: ARG002
         me = await bot.get_me()
         log.success(f"Бот {me.username} успешно запущен!")
+
+    async def on_shutdown(self, dispatcher: Dispatcher, bot: Bot):  # noqa: ARG002
+        await self.api_client.close()
 

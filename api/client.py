@@ -3,7 +3,8 @@ from typing import Any
 
 import aiohttp
 
-API_URL = "http://api:8000/ask"
+API_BASE_URL = "http://api:8000"
+API_URL = f"{API_BASE_URL}/ask"
 MAX_USER_SESSIONS = 50
 SESSION_TIMEOUT_SECONDS = 200
 
@@ -13,6 +14,10 @@ class ResponseValidationError(Exception):
 
 
 class EmptyResponseError(Exception):
+    pass
+
+
+class InvalidReviewResponseError(Exception):
     pass
 
 
@@ -57,6 +62,62 @@ class ApiClient:
             data = await response.json()
 
         return self._validate_response(data)
+
+    async def get_review_queue(self, user_id: str) -> list[dict[str, Any]]:
+        """Возвращает контакты, ожидающие проверки оператором."""
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts/review"
+
+        async with session.get(url) as response:
+            if response.status != 200:  # noqa: PLR2004
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+
+            data = await response.json()
+
+        if not isinstance(data, list) or not all(
+            isinstance(contact, dict) for contact in data
+        ):
+            raise InvalidReviewResponseError
+
+        return data
+
+    async def review_contact(
+        self,
+        user_id: str,
+        contact_id: int,
+        action: str,
+    ) -> dict[str, Any]:
+        """Одобряет или отклоняет контакт через backend API."""
+        if action not in {"approve", "reject"}:
+            raise ValueError(f"Неизвестное действие проверки: {action}")
+
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts/{contact_id}/{action}"
+
+        async with session.post(url) as response:
+            if response.status != 200:  # noqa: PLR2004
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+
+            data = await response.json()
+
+        if not isinstance(data, dict) or data.get("success") is not True:
+            raise InvalidReviewResponseError
+
+        return data
 
     def _validate_response(self, data: Any) -> str:
         """Валидирует содержимое ответа API и извлекает ответ."""
