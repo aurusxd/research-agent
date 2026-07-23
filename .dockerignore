@@ -1,0 +1,14 @@
+.env
+.git
+.gitignore
+.agents
+.codex
+.next
+.venv
+node_modules
+backend/logs
+uploads
+__pycache__
+*.py[cod]
+*.log
+*.tsbuildinfo
