@@ -26,12 +26,33 @@ async def review_contact(
     action = callback_data.action
 
     try:
-        await api_client.review_contact(
-            user_id=user_id,
-            contact_id=callback_data.contact_id,
-            action=action,
-        )
-        contacts = await api_client.get_review_queue(user_id)
+        if action == "send":
+            await api_client.send_contact_email(
+                user_id=user_id,
+                contact_id=callback_data.contact_id,
+            )
+            contacts = await api_client.get_review_queue(user_id)
+        else:
+            await api_client.review_contact(
+                user_id=user_id,
+                contact_id=callback_data.contact_id,
+                action=action,
+            )
+
+            if action == "approve":
+                if isinstance(callback.message, Message):
+                    await callback.message.edit_reply_markup(
+                        reply_markup=keyboard_build(
+                            callback_data.contact_id,
+                            approved=True,
+                        )
+                    )
+                await callback.answer(
+                    "Контакт одобрен. Подтвердите отправку email."
+                )
+                return
+
+            contacts = await api_client.get_review_queue(user_id)
     except aiohttp.ClientResponseError as exc:
         log.exception("Ошибка API при проверке контакта")
         await callback.answer(
@@ -63,7 +84,11 @@ async def review_contact(
             reply_markup=None,
         )
         await callback.answer(
-            "Контакт одобрен" if action == "approve" else "Контакт отклонён"
+            (
+                "Письмо отправлено"
+                if action == "send"
+                else "Контакт отклонён"
+            )
         )
         return
 
@@ -81,5 +106,9 @@ async def review_contact(
         reply_markup=keyboard_build(next_contact_id),
     )
     await callback.answer(
-        "Контакт одобрен" if action == "approve" else "Контакт отклонён"
+        (
+            "Письмо отправлено"
+            if action == "send"
+            else "Контакт отклонён"
+        )
     )

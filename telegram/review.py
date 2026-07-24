@@ -7,7 +7,11 @@ def build_review_card(contact: dict[str, Any]) -> str:
     score = contact.get("relevance_score")
     score_text = f"{score}/100" if score is not None else "не указана"
     channel = contact.get("preferred_channel") or "не выбран"
-    recipient = contact.get("recipient_address") or "не указан"
+    recipient = (
+        contact.get("recipient_address")
+        or contact.get("email")
+        or "не указан"
+    )
     reason = contact.get("relevance_reason") or "не указана"
     draft = contact.get("generated_message") or "не подготовлен"
     source = contact.get("source") or "не указан"

@@ -6,6 +6,12 @@ from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
 from schemas.search_run import SearchRunCreate, SearchRunRead
 from services.search_run_service import SearchRunService
+from services.mailing_service import (
+    ContactAlreadySentError,
+    ContactMailingError,
+    ContactMailingService,
+    ContactNotReadyError,
+)
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
 
@@ -14,6 +20,10 @@ app = FastAPI()
 
 class RequestData(BaseModel):
     text: str
+
+
+class SendEmailRequest(BaseModel):
+    subject: str | None = None
 
 
 @app.post("/search-runs", response_model=SearchRunRead)
@@ -139,6 +149,34 @@ async def reject_contact(
         "success": True,
         "contact_id": contact.id,
         "status": contact.status,
+    }
+
+
+@app.post("/contacts/{contact_id}/send-email")
+async def send_contact_email(
+    contact_id: int,
+    data: SendEmailRequest | None = None,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    service = ContactMailingService(session)
+    try:
+        communication, message_id = await service.send_approved_email(
+            contact_id,
+            subject=data.subject if data else None,
+        )
+    except ContactAlreadySentError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ContactNotReadyError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ContactMailingError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "success": True,
+        "contact_id": contact_id,
+        "communication_id": communication.id,
+        "status": ContactStatus.SENT.value,
+        "message_id": message_id,
     }
 
 @app.get("/health")

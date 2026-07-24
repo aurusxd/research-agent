@@ -119,6 +119,33 @@ class ApiClient:
 
         return data
 
+    async def send_contact_email(
+        self,
+        user_id: str,
+        contact_id: int,
+    ) -> dict[str, Any]:
+        """Отправляет одобренное приглашение по email."""
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts/{contact_id}/send-email"
+
+        async with session.post(url, json={}) as response:
+            if response.status != 200:  # noqa: PLR2004
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+
+            data = await response.json()
+
+        if not isinstance(data, dict) or data.get("success") is not True:
+            raise InvalidReviewResponseError
+
+        return data
+
     def _validate_response(self, data: Any) -> str:
         """Валидирует содержимое ответа API и извлекает ответ."""
         if not isinstance(data, dict):
