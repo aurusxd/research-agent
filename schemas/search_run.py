@@ -11,6 +11,7 @@ class SearchRunCreate(BaseModel):
     city: str | None = Field(default=None, max_length=100)
     keywords: list[str] = Field(default_factory=list, max_length=30)
     excluded_keywords: list[str] = Field(default_factory=list, max_length=30)
+    search_queries_limit: int = Field(default=8, ge=1, le=12)
     requested_limit: int = Field(default=20, ge=1, le=100)
     min_relevance_score: int = Field(default=50, ge=0, le=100)
 
@@ -20,7 +21,10 @@ class SearchRunRead(SearchRunCreate):
 
     id: int
     status: str
+    search_queries: list[str]
     found_count: int
+    raw_result_count: int
+    executed_query_count: int
     saved_count: int
     duplicate_count: int
     error_count: int

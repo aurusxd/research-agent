@@ -1,11 +1,18 @@
+import asyncio
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.core import ask_agent
+from agent.tools.web_search import search_web_results
 from database.models import SearchRun
 from database.repositories.search_run_repository import SearchRunRepository
 from schemas.search_run import SearchRunCreate
+from services.search_query_planner import (
+    build_search_queries,
+    merge_search_results,
+)
 from utils.enums import SearchRunStatus
 
 
@@ -22,23 +29,67 @@ class SearchRunService:
 
         search_run.status = SearchRunStatus.RUNNING.value
         search_run.started_at = datetime.now(timezone.utc)
+        search_run.search_queries = build_search_queries(search_run)
         await self.session.commit()
 
         try:
+            search_results, errors = await self._execute_search_queries(
+                search_run.search_queries
+            )
+            unique_results = merge_search_results(search_results)
+            analysis_limit = min(
+                50,
+                max(20, search_run.requested_limit * 2),
+            )
+            analysis_results = sorted(
+                unique_results,
+                key=lambda item: float(item.get("score") or 0),
+                reverse=True,
+            )[:analysis_limit]
+
+            search_run.executed_query_count = (
+                len(search_run.search_queries) - len(errors)
+            )
+            search_run.raw_result_count = len(search_results)
+            search_run.found_count = len(unique_results)
+            search_run.duplicate_count = max(
+                0,
+                len(search_results) - len(unique_results),
+            )
+            search_run.error_count = len(errors)
+            search_run.error_message = (
+                "\n".join(errors)[:4000] if errors else None
+            )
+            await self.session.commit()
+
+            if not unique_results:
+                raise RuntimeError(
+                    "Поисковые запросы не вернули ни одного результата"
+                )
+
             agent_result = await ask_agent(
-                user_message=self._build_agent_task(search_run),
+                user_message=self._build_agent_task(
+                    search_run,
+                    analysis_results,
+                ),
                 search_run_id=search_run.id,
             )
             search_run.saved_count = await self.repository.count_contacts(
                 search_run.id
             )
-            search_run.found_count = search_run.saved_count
             search_run.agent_result = agent_result
-            search_run.status = SearchRunStatus.COMPLETED.value
+            search_run.status = (
+                SearchRunStatus.PARTIALLY_COMPLETED.value
+                if errors
+                else SearchRunStatus.COMPLETED.value
+            )
         except Exception as error:
             search_run.status = SearchRunStatus.FAILED.value
-            search_run.error_count += 1
-            search_run.error_message = str(error)[:4000]
+            search_run.error_count = max(1, search_run.error_count)
+            previous_error = search_run.error_message or ""
+            search_run.error_message = (
+                f"{previous_error}\n{error}".strip()[:4000]
+            )
 
         search_run.finished_at = datetime.now(timezone.utc)
         await self.session.commit()
@@ -57,7 +108,41 @@ class SearchRunService:
         return await self.repository.get_all(limit=limit, offset=offset)
 
     @staticmethod
-    def _build_agent_task(search_run: SearchRun) -> str:
+    async def _execute_search_queries(
+        queries: list[str],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        semaphore = asyncio.Semaphore(3)
+
+        async def execute(query: str) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await asyncio.to_thread(
+                    search_web_results,
+                    query,
+                    max_results=10,
+                )
+
+        tasks = [
+            execute(query)
+            for query in queries
+        ]
+        responses = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+        results: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for query, response in zip(queries, responses, strict=True):
+            if isinstance(response, BaseException):
+                errors.append(f"{query}: {response}")
+                continue
+            results.extend(response)
+        return results, errors
+
+    @staticmethod
+    def _build_agent_task(
+        search_run: SearchRun,
+        search_results: list[dict[str, Any]],
+    ) -> str:
         parts = [
             search_run.query,
             f"ID поискового запуска: {search_run.id}.",
@@ -86,7 +171,29 @@ class SearchRunService:
                 f"{', '.join(search_run.excluded_keywords)}."
             )
         parts.append(
-            "Для каждого результата сначала проверь данные через web_search, "
-            "затем сохрани его через save_contact."
+            "Ниже приведена уже собранная и очищенная от повторяющихся URL "
+            "поисковая выдача. Проанализируй каждый результат. При "
+            "необходимости используй web_search для проверки контактов, "
+            "после чего сохраняй подходящие организации через save_contact."
         )
+        for number, result in enumerate(search_results, start=1):
+            content = " ".join(
+                str(result.get("content") or "").split()
+            )[:1200]
+            parts.append(
+                "\n".join(
+                    [
+                        f"Результат {number}:",
+                        f"Название: {result.get('title') or 'Не указано'}",
+                        f"URL: {result.get('url')}",
+                        f"Описание: {content}",
+                        (
+                            "Найден по запросам: "
+                            + ", ".join(
+                                result.get("matched_queries") or []
+                            )
+                        ),
+                    ]
+                )
+            )
         return "\n".join(parts)

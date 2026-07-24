@@ -23,6 +23,8 @@ class SearchRun(Base):
     city: Mapped[str | None] = mapped_column(String(100))
     keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
     excluded_keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    search_queries: Mapped[list[str]] = mapped_column(JSON, default=list)
+    search_queries_limit: Mapped[int] = mapped_column(Integer, default=8)
     requested_limit: Mapped[int] = mapped_column(Integer, default=20)
     min_relevance_score: Mapped[int] = mapped_column(Integer, default=50)
     status: Mapped[str] = mapped_column(
@@ -31,6 +33,8 @@ class SearchRun(Base):
         index=True,
     )
     found_count: Mapped[int] = mapped_column(Integer, default=0)
+    raw_result_count: Mapped[int] = mapped_column(Integer, default=0)
+    executed_query_count: Mapped[int] = mapped_column(Integer, default=0)
     saved_count: Mapped[int] = mapped_column(Integer, default=0)
     duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)

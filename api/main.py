@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 
-from agent.core import ask_agent
 from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
 from schemas.search_run import SearchRunCreate, SearchRunRead
@@ -60,14 +59,27 @@ async def get_search_run(
     return search_run
 
 @app.post("/ask")
-async def ask(data: RequestData):
-    """Обрабатывает ввод пользователя через ИИ-агента и возвращает результат."""
-    result = await ask_agent(
-        user_message=data.text,
+async def ask(
+    data: RequestData,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    """Запускает управляемый поиск из обычного сообщения оператора."""
+    service = SearchRunService(session)
+    search_run = await service.create_and_execute(
+        SearchRunCreate(query=data.text)
     )
 
     return {
-        "answer": result
+        "answer": (
+            search_run.agent_result
+            or search_run.error_message
+            or "Поиск завершён без текстового результата."
+        ),
+        "search_run_id": search_run.id,
+        "status": search_run.status,
+        "search_queries": search_run.search_queries,
+        "found_count": search_run.found_count,
+        "saved_count": search_run.saved_count,
     }
 
 
