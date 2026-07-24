@@ -19,7 +19,7 @@ def search_web(query: str) -> str:
                     "api_key": api_key,
                     "query": query,
                     "search_depth": "basic",
-                    "max_results": 5,
+                    "max_results": 10,
                 },
                 timeout=15,
             )
