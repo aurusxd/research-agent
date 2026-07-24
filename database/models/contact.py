@@ -82,8 +82,8 @@ class Contact(Base):
         default=func.now()
     )
 
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_contact_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    last_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
     communications: Mapped[list["Communication"]] = relationship(
