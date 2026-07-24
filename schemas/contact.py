@@ -2,6 +2,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ContactCreate(BaseModel):
+    search_run_id: int | None = None
+
     organization_name: str = Field(min_length=1, max_length=255)
 
     contact_name: str | None = None

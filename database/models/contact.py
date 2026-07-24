@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    ForeignKey,
     String,
     Text,
     Float,
@@ -16,11 +17,17 @@ from utils.enums import ContactStatus
 
 if TYPE_CHECKING:
     from database.models.communication import Communication
+    from database.models.search_run import SearchRun
 
 class Contact(Base):
     __tablename__ = "contacts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    search_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("search_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Основная информация
     organization_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -84,4 +91,7 @@ class Contact(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="Communication.created_at",
+    )
+    search_run: Mapped["SearchRun | None"] = relationship(
+        back_populates="contacts",
     )

@@ -4,6 +4,11 @@ from pydantic import BaseModel, Field
 
 
 class SaveContactToolArgs(BaseModel):
+    search_run_id: int | None = Field(
+        default=None,
+        description="ID текущего поискового запуска, переданный агенту",
+    )
+
     organization_name: str = Field(
         description="Полное название найденной организации"
     )

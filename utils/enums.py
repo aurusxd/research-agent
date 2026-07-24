@@ -16,3 +16,11 @@ class ContactStatus(str, Enum):
     SENT = "sent"
     REPLIED = "replied"
     FAILED = "failed"
+
+
+class SearchRunStatus(str, Enum):
+    CREATED = "created"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIALLY_COMPLETED = "partially_completed"
+    FAILED = "failed"

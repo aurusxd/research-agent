@@ -60,7 +60,10 @@ available_tools = {
 }
 
 
-async def ask_agent(user_message: str) -> str:
+async def ask_agent(
+    user_message: str,
+    search_run_id: int | None = None,
+) -> str:
     messages = [
         {
             "role": "system",
@@ -71,6 +74,17 @@ async def ask_agent(user_message: str) -> str:
             "content": user_message,
         },
     ]
+    if search_run_id is not None:
+        messages.insert(
+            1,
+            {
+                "role": "system",
+                "content": (
+                    f"Текущий search_run_id={search_run_id}. "
+                    "Обязательно передавай его в каждый вызов save_contact."
+                ),
+            },
+        )
 
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(

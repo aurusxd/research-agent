@@ -13,6 +13,7 @@ async def save_contact(
         relevance_score: int,
         relevance_reason: str,
         session: AsyncSession,
+        search_run_id: int | None = None,
         contact_name: str | None = None,
         position: str | None = None,
         category: str | None = None,
@@ -36,6 +37,7 @@ async def save_contact(
     log.info("Зашел в save_contact")
     try:
         data = SaveContactToolArgs(
+            search_run_id=search_run_id,
             organization_name=organization_name,
             contact_name=contact_name,
             position=position,

@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from agent.core import ask_agent
 from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
+from schemas.search_run import SearchRunCreate, SearchRunRead
+from services.search_run_service import SearchRunService
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
 
@@ -12,6 +14,40 @@ app = FastAPI()
 
 class RequestData(BaseModel):
     text: str
+
+
+@app.post("/search-runs", response_model=SearchRunRead)
+async def create_search_run(
+    data: SearchRunCreate,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    service = SearchRunService(session)
+    return await service.create_and_execute(data)
+
+
+@app.get("/search-runs", response_model=list[SearchRunRead])
+async def list_search_runs(
+    limit: int = 50,
+    offset: int = 0,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    service = SearchRunService(session)
+    return await service.get_all(
+        limit=max(1, min(limit, 100)),
+        offset=max(0, offset),
+    )
+
+
+@app.get("/search-runs/{search_run_id}", response_model=SearchRunRead)
+async def get_search_run(
+    search_run_id: int,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    service = SearchRunService(session)
+    search_run = await service.get_by_id(search_run_id)
+    if search_run is None:
+        raise HTTPException(status_code=404, detail="Поисковый запуск не найден")
+    return search_run
 
 @app.post("/ask")
 async def ask(data: RequestData):
@@ -104,3 +140,7 @@ async def reject_contact(
         "contact_id": contact.id,
         "status": contact.status,
     }
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
