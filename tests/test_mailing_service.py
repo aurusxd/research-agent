@@ -6,6 +6,7 @@ from services.mailing_service import (
     ContactAlreadySentError,
     ContactMailingService,
 )
+from services.email_sender import EmailConfigurationError
 from utils.enums import ContactStatus
 
 
@@ -56,3 +57,22 @@ class ContactMailingServiceTest(IsolatedAsyncioTestCase):
 
         with self.assertRaises(ContactAlreadySentError):
             await self.service.send_approved_email(self.contact.id)
+
+    @patch(
+        "services.mailing_service.send_yandex_email",
+        new_callable=AsyncMock,
+    )
+    async def test_marks_failed_send(self, send_email: AsyncMock) -> None:
+        send_email.side_effect = EmailConfigurationError(
+            "YANDEX_SMTP_USER не заполнен"
+        )
+
+        with self.assertRaises(Exception):
+            await self.service.send_approved_email(self.contact.id)
+
+        self.assertEqual(self.contact.status, ContactStatus.FAILED.value)
+        self.assertEqual(
+            self.contact.next_action,
+            "Проверить ошибку отправки и повторить вручную",
+        )
+        self.session.commit.assert_awaited_once()

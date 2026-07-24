@@ -131,11 +131,20 @@ class ApiClient:
         async with session.post(url, json={}) as response:
             if response.status != 200:  # noqa: PLR2004
                 body = await response.text()
+                message = body
+                try:
+                    error_data = await response.json(content_type=None)
+                    if isinstance(error_data, dict):
+                        detail = error_data.get("detail")
+                        if isinstance(detail, str):
+                            message = detail
+                except (ValueError, aiohttp.ContentTypeError):
+                    pass
                 raise aiohttp.ClientResponseError(
                     request_info=response.request_info,
                     history=response.history,
                     status=response.status,
-                    message=body,
+                    message=message,
                     headers=response.headers,
                 )
 

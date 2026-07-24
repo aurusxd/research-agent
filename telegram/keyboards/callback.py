@@ -56,7 +56,11 @@ async def review_contact(
     except aiohttp.ClientResponseError as exc:
         log.exception("Ошибка API при проверке контакта")
         await callback.answer(
-            f"Ошибка API {exc.status}",
+            (
+                f"Ошибка отправки: {exc.message}"
+                if action == "send"
+                else f"Ошибка API {exc.status}: {exc.message}"
+            )[:200],
             show_alert=True,
         )
         return

@@ -67,8 +67,39 @@ def _send_email_sync(
         ) as smtp:
             smtp.login(username, password)
             smtp.send_message(message)
-    except (OSError, smtplib.SMTPException) as error:
-        raise EmailSendError("Не удалось отправить письмо через SMTP Яндекса") from error
+    except smtplib.SMTPAuthenticationError as error:
+        raise EmailSendError(
+            "Яндекс отклонил авторизацию SMTP. Проверьте адрес почты и "
+            "пароль приложения в YANDEX_SMTP_USER/YANDEX_SMTP_PASSWORD"
+        ) from error
+    except smtplib.SMTPRecipientsRefused as error:
+        raise EmailSendError(
+            "SMTP Яндекса отклонил email получателя"
+        ) from error
+    except smtplib.SMTPSenderRefused as error:
+        raise EmailSendError(
+            "SMTP Яндекса отклонил адрес отправителя"
+        ) from error
+    except smtplib.SMTPDataError as error:
+        raise EmailSendError(
+            f"SMTP Яндекса не принял письмо: код {error.smtp_code}"
+        ) from error
+    except ssl.SSLError as error:
+        raise EmailSendError(
+            "Не удалось установить защищённое SSL-соединение с SMTP Яндекса"
+        ) from error
+    except TimeoutError as error:
+        raise EmailSendError(
+            "SMTP Яндекса не ответил за отведённое время"
+        ) from error
+    except OSError as error:
+        raise EmailSendError(
+            "Не удалось подключиться к smtp.yandex.ru:465"
+        ) from error
+    except smtplib.SMTPException as error:
+        raise EmailSendError(
+            f"Ошибка SMTP Яндекса: {type(error).__name__}"
+        ) from error
 
     return {
         "success": True,

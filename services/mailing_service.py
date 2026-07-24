@@ -8,6 +8,7 @@ from database.repositories.communication_repository import (
 )
 from database.repositories.contact_repository import ContactRepository
 from services.email_sender import send_yandex_email
+from services.logger import log
 from utils.enums import CommunicationStatus, ContactStatus
 
 
@@ -88,6 +89,10 @@ class ContactMailingService:
                 text=message,
             )
         except Exception as error:
+            log.exception(
+                "Не удалось отправить email контакту ID={}",
+                contact.id,
+            )
             communication = await self.communication_repository.create(
                 {
                     "contact_id": contact.id,
