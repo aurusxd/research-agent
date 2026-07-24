@@ -4,10 +4,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.core import ask_agent
+from agent.core import ask_agent, create_search_plan
 from agent.tools.web_search import search_web_results
 from database.models import SearchRun
 from database.repositories.search_run_repository import SearchRunRepository
+from services.logger import log
 from schemas.search_run import SearchRunCreate
 from services.search_query_planner import (
     build_search_queries,
@@ -26,10 +27,22 @@ class SearchRunService:
             data.model_dump(mode="json")
         )
         await self.session.commit()
-
         search_run.status = SearchRunStatus.RUNNING.value
         search_run.started_at = datetime.now(timezone.utc)
-        search_run.search_queries = build_search_queries(search_run)
+        try:
+            plan = await create_search_plan(search_run.query)
+
+            search_run.category = search_run.category or plan["category"]
+            search_run.region = search_run.region or plan["region"]
+            search_run.search_queries = plan["queries"][
+                :search_run.search_queries_limit
+    ]
+        except Exception as error:
+            log.warning(
+            "ИИ-планировщик недоступен, используем резервный: {}",
+            error,
+            )
+            search_run.search_queries = build_search_queries(search_run)
         await self.session.commit()
 
         try:

@@ -33,3 +33,21 @@ class SearchRunRead(SearchRunCreate):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+class SearchPlan(BaseModel):
+    category: str = Field(
+        min_length=2,
+        description="Обобщённая категория организаций",
+    )
+
+    region: str | None = Field(
+        default=None,
+        description="Регион поиска в нормализованном виде",
+    )
+
+    queries: list[str] = Field(
+        min_length=3,
+        max_length=10,
+        description="Поисковые подзапросы",
+    )

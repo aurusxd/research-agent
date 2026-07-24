@@ -2,17 +2,19 @@ import json
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
+from pydantic import ValidationError
 
 from agent.tools.web_search import search_web
 from agent.tools.save_contact import save_contact
 from schemas.save_contact_schema import SaveContactToolArgs
 import inspect
 
-from utils.prompt import SYSTEM_PROMPT
+from schemas.search_run import SearchPlan
+from utils.prompt import SYSTEM_PROMPT, SYSTEM_PROMPT_FOR_QUERY
 load_dotenv()
 
-client = OpenAI(
+client = AsyncOpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com",
 )
@@ -59,6 +61,69 @@ available_tools = {
     "save_contact": save_contact,
 }
 
+async def create_search_plan(
+        user_query: str,
+    ) -> dict:
+        user_query = user_query.strip()
+
+        if not user_query:
+            raise ValueError("Пользовательский запрос не может быть пустым")
+
+        response = await client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT_FOR_QUERY,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Разбери следующий запрос и верни JSON:\n"
+                        f"{user_query}"
+                    ),
+                },
+            ],
+            response_format={
+                "type": "json_object",
+            },
+            temperature=0.2,
+            max_tokens=1000,
+        )
+
+        content = response.choices[0].message.content
+
+        if not content:
+            raise RuntimeError(
+                "DeepSeek вернул пустой ответ"
+            )
+
+        try:
+            raw_data = json.loads(content)
+            plan = SearchPlan.model_validate(raw_data)
+
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"DeepSeek вернул некорректный JSON: {content}"
+            ) from error
+
+        except ValidationError as error:
+            raise RuntimeError(
+                f"Ответ DeepSeek не соответствует схеме: {error}"
+            ) from error
+
+        # Убираем возможные дубли, сохраняя порядок.
+        unique_queries = list(dict.fromkeys(plan.queries))
+
+        if len(unique_queries) < 3:
+            raise RuntimeError(
+                "DeepSeek сформировал меньше трёх уникальных запросов"
+            )
+
+        plan.queries = unique_queries
+
+        return plan.model_dump()
+
 
 async def ask_agent(
     user_message: str,
@@ -87,7 +152,7 @@ async def ask_agent(
         )
 
     for _ in range(MAX_TOOL_ROUNDS):
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="deepseek-v4-flash",
             messages=messages,
             tools=tools,
