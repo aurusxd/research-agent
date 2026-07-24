@@ -88,6 +88,65 @@ class ApiClient:
 
         return data
 
+    async def get_contacts(
+        self,
+        user_id: str,
+        *,
+        status: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Возвращает контакты выбранной очереди."""
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts"
+        async with session.get(
+            url,
+            params={"status": status, "limit": limit},
+        ) as response:
+            if response.status != 200:  # noqa: PLR2004
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+
+        if not isinstance(data, list) or not all(
+            isinstance(contact, dict) for contact in data
+        ):
+            raise InvalidReviewResponseError
+        return data
+
+    async def get_statistics(
+        self,
+        user_id: str,
+        *,
+        period: str,
+    ) -> dict[str, Any]:
+        """Возвращает статистику за выбранный период."""
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/statistics"
+        async with session.get(
+            url,
+            params={"period": period},
+        ) as response:
+            if response.status != 200:  # noqa: PLR2004
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+
+        if not isinstance(data, dict):
+            raise ResponseValidationError
+        return data
+
     async def review_contact(
         self,
         user_id: str,

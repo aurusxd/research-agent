@@ -47,7 +47,6 @@ def build_review_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📨 Черновики организаций", callback_data="ui:review:contacts")],
-            [InlineKeyboardButton(text="🔎 Найденные обращения", callback_data="ui:review:requests")],
             [InlineKeyboardButton(text="✅ Одобренные", callback_data="ui:review:approved")],
             [InlineKeyboardButton(text="❌ Отклонённые", callback_data="ui:review:rejected")],
         ],
@@ -70,7 +69,9 @@ def build_mailing_menu() -> InlineKeyboardMarkup:
     )
 
 
-def build_statistics_menu() -> InlineKeyboardMarkup:
+def build_statistics_menu(
+    refresh_period: str = "all",
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -78,7 +79,12 @@ def build_statistics_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🗓 7 дней", callback_data="ui:statistics:week"),
             ],
             [InlineKeyboardButton(text="📈 За всё время", callback_data="ui:statistics:all")],
-            [InlineKeyboardButton(text="🔄 Обновить", callback_data="ui:statistics:refresh")],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Обновить",
+                    callback_data=f"ui:statistics:refresh:{refresh_period}",
+                )
+            ],
         ],
     )
 

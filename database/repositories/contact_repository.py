@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -214,12 +215,18 @@ class ContactRepository:
         result = await self.session.scalars(statement)
         return list(result.all())
 
-    async def count(self) -> int:
+    async def count(self, *, since: datetime | None = None) -> int:
         statement = select(func.count(Contact.id))
+        if since is not None:
+            statement = statement.where(Contact.created_at >= since)
 
         return await self.session.scalar(statement) or 0
 
-    async def count_by_status(self) -> dict[str, int]:
+    async def count_by_status(
+        self,
+        *,
+        since: datetime | None = None,
+    ) -> dict[str, int]:
         statement = (
             select(
                 Contact.status,
@@ -227,6 +234,8 @@ class ContactRepository:
             )
             .group_by(Contact.status)
         )
+        if since is not None:
+            statement = statement.where(Contact.created_at >= since)
 
         result = await self.session.execute(statement)
 

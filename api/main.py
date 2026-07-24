@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
 from schemas.search_run import SearchRunCreate, SearchRunRead
+from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
+from services.statistics_service import StatisticsPeriod, StatisticsService
 from services.mailing_service import (
     ContactAlreadySentError,
     ContactMailingError,
@@ -98,6 +100,33 @@ async def get_review_queue(
         ContactRead.model_validate(contact)
         for contact in contacts
     ]
+
+
+@app.get("/contacts", response_model=list[ContactRead])
+async def list_contacts(
+    status: ContactStatus | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    repository = ContactRepository(session)
+    contacts = await repository.search(
+        status=status.value if status else None,
+        limit=max(1, min(limit, 100)),
+        offset=max(0, offset),
+    )
+    return [
+        ContactRead.model_validate(contact)
+        for contact in contacts
+    ]
+
+
+@app.get("/statistics", response_model=StatisticsRead)
+async def get_statistics(
+    period: StatisticsPeriod = "all",
+    session: AsyncSession = Depends(provider.get_session),
+):
+    return await StatisticsService(session).get(period)
 
 
 @app.post("/contacts/{contact_id}/approve")
