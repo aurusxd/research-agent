@@ -53,7 +53,7 @@ class VkService:
                     'button:has-text("Написать сообщение")'
                 ).first
                 try:
-                    if open_dialog.is_visible():
+                    if await open_dialog.is_visible():
                         await open_dialog.click(timeout=10_000)
                     else:
                         await page.get_by_text("Сообщение", exact=True).click()
