@@ -37,7 +37,7 @@ class ContactMailingServiceTest(IsolatedAsyncioTestCase):
         )
 
     @patch(
-        "services.mailing_service.send_yandex_email",
+        "services.mailing_service.send_mailru_email",
         new_callable=AsyncMock,
     )
     async def test_send_approved_email(self, send_email: AsyncMock) -> None:
@@ -73,12 +73,12 @@ class ContactMailingServiceTest(IsolatedAsyncioTestCase):
         self.assertEqual(self.contact.status, ContactStatus.DRY_RUN.value)
 
     @patch(
-        "services.mailing_service.send_yandex_email",
+        "services.mailing_service.send_mailru_email",
         new_callable=AsyncMock,
     )
     async def test_marks_failed_send(self, send_email: AsyncMock) -> None:
         send_email.side_effect = EmailConfigurationError(
-            "YANDEX_SMTP_USER не заполнен"
+            "MAILRU_SMTP_USER не заполнен"
         )
 
         with self.assertRaises(Exception):

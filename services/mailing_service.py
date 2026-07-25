@@ -8,7 +8,7 @@ from database.repositories.communication_repository import (
     CommunicationRepository,
 )
 from database.repositories.contact_repository import ContactRepository
-from services.email_sender import send_yandex_email
+from services.email_sender import send_mailru_email
 from services.channel_sender import send_telegram_message, send_vk_message
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 from services.logger import log
@@ -88,7 +88,7 @@ class ContactMailingService:
         )
 
         try:
-            result = await send_yandex_email(
+            result = await send_mailru_email(
                 recipient=recipient,
                 subject=email_subject,
                 text=message,

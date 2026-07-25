@@ -6,8 +6,8 @@ from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
 
-YANDEX_SMTP_HOST = "smtp.yandex.ru"
-YANDEX_SMTP_PORT = 465
+MAILRU_SMTP_HOST = "smtp.mail.ru"
+MAILRU_SMTP_PORT = 465
 SMTP_TIMEOUT_SECONDS = 30
 
 
@@ -60,8 +60,8 @@ def _send_email_sync(
 
     try:
         with smtplib.SMTP_SSL(
-            host=YANDEX_SMTP_HOST,
-            port=YANDEX_SMTP_PORT,
+            host=MAILRU_SMTP_HOST,
+            port=MAILRU_SMTP_PORT,
             timeout=SMTP_TIMEOUT_SECONDS,
             context=context,
         ) as smtp:
@@ -69,36 +69,36 @@ def _send_email_sync(
             smtp.send_message(message)
     except smtplib.SMTPAuthenticationError as error:
         raise EmailSendError(
-            "Яндекс отклонил авторизацию SMTP. Проверьте адрес почты и "
-            "пароль приложения в YANDEX_SMTP_USER/YANDEX_SMTP_PASSWORD"
+            "Mail.ru отклонил авторизацию SMTP. Проверьте адрес почты и "
+            "пароль приложения в MAILRU_SMTP_USER/MAILRU_SMTP_PASSWORD"
         ) from error
     except smtplib.SMTPRecipientsRefused as error:
         raise EmailSendError(
-            "SMTP Яндекса отклонил email получателя"
+            "SMTP Mail.ru отклонил email получателя"
         ) from error
     except smtplib.SMTPSenderRefused as error:
         raise EmailSendError(
-            "SMTP Яндекса отклонил адрес отправителя"
+            "SMTP Mail.ru отклонил адрес отправителя"
         ) from error
     except smtplib.SMTPDataError as error:
         raise EmailSendError(
-            f"SMTP Яндекса не принял письмо: код {error.smtp_code}"
+            f"SMTP Mail.ru не принял письмо: код {error.smtp_code}"
         ) from error
     except ssl.SSLError as error:
         raise EmailSendError(
-            "Не удалось установить защищённое SSL-соединение с SMTP Яндекса"
+            "Не удалось установить защищённое SSL-соединение с SMTP Mail.ru"
         ) from error
     except TimeoutError as error:
         raise EmailSendError(
-            "SMTP Яндекса не ответил за отведённое время"
+            "SMTP Mail.ru не ответил за отведённое время"
         ) from error
     except OSError as error:
         raise EmailSendError(
-            "Не удалось подключиться к smtp.yandex.ru:465"
+            "Не удалось подключиться к smtp.mail.ru:465"
         ) from error
     except smtplib.SMTPException as error:
         raise EmailSendError(
-            f"Ошибка SMTP Яндекса: {type(error).__name__}"
+            f"Ошибка SMTP Mail.ru: {type(error).__name__}"
         ) from error
 
     return {
@@ -108,17 +108,17 @@ def _send_email_sync(
     }
 
 
-async def send_yandex_email(
+async def send_mailru_email(
     *,
     recipient: str,
     subject: str,
     text: str,
     html: str | None = None,
 ) -> dict[str, str | bool]:
-    """Отправляет одно письмо через SMTP Яндекса, не блокируя event loop."""
-    username = _required_env("YANDEX_SMTP_USER")
-    password = _required_env("YANDEX_SMTP_PASSWORD")
-    from_name = os.getenv("YANDEX_SMTP_FROM_NAME", "Проект «Корни»").strip()
+    """Отправляет одно письмо через SMTP Mail.ru, не блокируя event loop."""
+    username = _required_env("MAILRU_SMTP_USER")
+    password = _required_env("MAILRU_SMTP_PASSWORD")
+    from_name = os.getenv("MAILRU_SMTP_FROM_NAME", "Проект «Корни»").strip()
 
     recipient = _validate_recipient(recipient)
     subject = subject.strip()
