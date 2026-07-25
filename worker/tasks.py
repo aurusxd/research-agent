@@ -27,7 +27,32 @@ def _redis() -> Redis:
     )
 
 
-async def _execute_search(search_run_id: int) -> dict[str, str | int]:
+def _build_search_report(result: dict[str, str | int]) -> str:
+    status = str(result["status"])
+    status_label = {
+        "completed": "завершён",
+        "partially_completed": "завершён с отдельными ошибками",
+        "failed": "завершился ошибкой",
+    }.get(status, status)
+    lines = [
+        f"🔎 Поиск #{result['search_run_id']} {status_label}.",
+        f"Найдено уникальных результатов: {result['found_count']}",
+        f"Сохранено контактов: {result['saved_count']}",
+        f"Исключено дублей: {result['duplicate_count']}",
+        f"Ошибок: {result['error_count']}",
+    ]
+    error_message = str(result.get("error_message") or "").strip()
+    if error_message:
+        lines.append(f"Причина: {error_message[:700]}")
+    if int(result["saved_count"]) > 0:
+        lines.append("Контакты доступны в разделе «Проверка материалов».")
+    return "\n".join(lines)
+
+
+async def _execute_search(
+    search_run_id: int,
+    notification_chat_id: str | None = None,
+) -> dict[str, str | int]:
     engine = create_async_engine(
         config.database.database_url,
         poolclass=NullPool,
@@ -36,12 +61,27 @@ async def _execute_search(search_run_id: int) -> dict[str, str | int]:
     try:
         async with session_factory() as session:
             search_run = await SearchRunService(session).execute(search_run_id)
-            return {
+            result = {
                 "search_run_id": search_run.id,
                 "status": search_run.status,
                 "found_count": search_run.found_count,
                 "saved_count": search_run.saved_count,
+                "duplicate_count": search_run.duplicate_count,
+                "error_count": search_run.error_count,
+                "error_message": search_run.error_message or "",
             }
+            if notification_chat_id:
+                try:
+                    await TelegramService.notify_chat(
+                        notification_chat_id,
+                        _build_search_report(result),
+                    )
+                except Exception:
+                    log.exception(
+                        "Не удалось уведомить Telegram о завершении поиска ID={}",
+                        search_run_id,
+                    )
+            return result
     finally:
         await engine.dispose()
 
@@ -52,8 +92,11 @@ async def _execute_search(search_run_id: int) -> dict[str, str | int]:
     retry_backoff=True,
     retry_kwargs={"max_retries": 3},
 )
-def execute_search_run(search_run_id: int):
-    return asyncio.run(_execute_search(search_run_id))
+def execute_search_run(
+    search_run_id: int,
+    notification_chat_id: str | None = None,
+):
+    return asyncio.run(_execute_search(search_run_id, notification_chat_id))
 
 
 async def _send(contact_id: int) -> dict[str, str | int]:

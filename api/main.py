@@ -34,6 +34,7 @@ async def require_api_key(request: Request, call_next):
 
 class RequestData(BaseModel):
     text: str
+    user_id: str | None = None
 
 
 class UpdateMessageRequest(BaseModel):
@@ -88,7 +89,10 @@ async def ask(
     """Запускает управляемый поиск из обычного сообщения оператора."""
     service = SearchRunService(session)
     search_run = await service.create(SearchRunCreate(query=data.text))
-    task = execute_search_run.apply_async(args=[search_run.id], queue="search")
+    task = execute_search_run.apply_async(
+        args=[search_run.id, data.user_id],
+        queue="search",
+    )
 
     return {
         "answer": (
