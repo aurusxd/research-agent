@@ -15,6 +15,7 @@ from services.delivery_channel_resolver import (
     DeliveryChannelResolutionError,
     resolve_delivery_channel,
 )
+from services.invitation_generator import ensure_contact_invitation
 from worker.tasks import execute_search_run
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
@@ -174,6 +175,20 @@ async def approve_contact(
         raise HTTPException(
             status_code=409,
             detail="Контакт уже был обработан",
+        )
+
+    if not (contact.generated_message or "").strip():
+        contact.generated_message = ensure_contact_invitation(contact)
+        contact.next_action = (
+            "Черновик восстановлен автоматически — проверьте его перед одобрением"
+        )
+        await session.commit()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Черновик был восстановлен автоматически. "
+                "Откройте карточку повторно и проверьте текст."
+            ),
         )
 
     try:

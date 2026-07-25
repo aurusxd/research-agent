@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from database.models.communication import Communication
 from database.models.contact import Contact
 from database.session import provider
+from services.invitation_generator import ensure_contact_invitation
 from utils.enums import ContactStatus
 from worker.routing import queue_for_channel
 
@@ -63,7 +64,7 @@ class MailingQueueController:
             await redis.aclose()
 
         async with provider.session_factory() as session:
-            contacts = list(
+            candidates = list(
                 (
                     await session.scalars(
                         select(Contact).where(
@@ -79,6 +80,22 @@ class MailingQueueController:
                     )
                 ).all()
             )
+            contacts = []
+            for contact in candidates:
+                if not (contact.generated_message or "").strip():
+                    contact.generated_message = ensure_contact_invitation(contact)
+                    contact.status = ContactStatus.PENDING_REVIEW.value
+                    contact.next_action = (
+                        "Черновик восстановлен автоматически — требуется проверка"
+                    )
+                    continue
+                if contact.status == ContactStatus.FAILED.value:
+                    # Temporary failures are retried by the original Celery
+                    # task. A new mailing run must not revive exhausted or
+                    # permanent failures and create duplicate deliveries.
+                    continue
+                contacts.append(contact)
+            await session.commit()
         for contact in contacts:
             await self.enqueue_contact(contact.id, contact.preferred_channel)
         return await self.status()

@@ -104,10 +104,11 @@ class SaveContactToolArgs(BaseModel):
         description="Ссылка на официальный профиль или группу в OK.ru",
     )
 
-    generated_message: str | None = Field(
-        default=None,
+    generated_message: str = Field(
+        min_length=20,
         description=(
-            "Персонализированный черновик приглашения для проверки человеком"
+            "Обязательный персонализированный черновик приглашения для "
+            "проверки человеком"
         ),
     )
 

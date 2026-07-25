@@ -8,6 +8,7 @@ from database.session import provider
 from database.repositories.contact_repository import ContactRepository
 from schemas.save_contact_schema import SaveContactToolArgs
 from services.logger import log
+from services.invitation_generator import ensure_invitation
 from utils.enums import ContactStatus
 from services.source_verification import verify_source
 
@@ -97,6 +98,12 @@ async def save_contact(
                 email = None
                 if (preferred_channel or "").strip().lower() == "email":
                     preferred_channel = None
+        generated_message = ensure_invitation(
+            generated_message,
+            organization_name=organization_name,
+            category=category,
+            preferred_channel=preferred_channel,
+        )
         data = SaveContactToolArgs(
             search_run_id=search_run_id,
             organization_name=organization_name,

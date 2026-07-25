@@ -194,6 +194,11 @@ class SearchRunService:
             "Передавай этот ID в search_run_id при каждом вызове save_contact.",
             f"Сохрани не более {search_run.requested_limit} уникальных контактов.",
             (
+                "В каждом вызове save_contact обязательно передавай "
+                "непустой generated_message — готовый персонализированный "
+                "черновик приглашения для выбранного preferred_channel."
+            ),
+            (
                 "Сохраняй только контакты с релевантностью не ниже "
                 f"{search_run.min_relevance_score}."
             ),

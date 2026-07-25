@@ -5,6 +5,7 @@ from pathlib import Path
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright, expect
+
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 
 
@@ -49,7 +50,10 @@ class VkService:
                     'button:has-text("Написать сообщение")'
                 ).first
                 try:
-                    await open_dialog.click(timeout=15_000)
+                    if open_dialog.is_visible():
+                        await open_dialog.click(timeout=10_000)
+                    else:
+                        await page.get_by_text("Сообщение", exact=True).click()
                 except (PlaywrightTimeoutError, AssertionError) as error:
                     raise RuntimeError(
                         "VK не предоставил кнопку отправки сообщения; "
@@ -68,10 +72,8 @@ class VkService:
                     '[aria-label="Отправить сообщение"], '
                     'button:has-text("Отправить")'
                 ).first
-                if await send_button.count():
-                    await send_button.click(timeout=10_000)
-                else:
-                    await editor.press("Enter")
+                await page.keyboard.press("Enter")
+
                 try:
                     await expect(editor).to_be_empty(timeout=10_000)
                 except PlaywrightTimeoutError as error:
