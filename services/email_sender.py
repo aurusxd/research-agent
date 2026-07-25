@@ -1,13 +1,18 @@
 import asyncio
+import imaplib
 import os
+import re
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
 
 MAILRU_SMTP_HOST = "smtp.mail.ru"
 MAILRU_SMTP_PORT = 465
+MAILRU_IMAP_HOST = "imap.mail.ru"
+MAILRU_IMAP_PORT = 993
 SMTP_TIMEOUT_SECONDS = 30
 
 
@@ -101,11 +106,58 @@ def _send_email_sync(
             f"Ошибка SMTP Mail.ru: {type(error).__name__}"
         ) from error
 
+    sent_copy_saved = _save_sent_copy(
+        username=username,
+        password=password,
+        message=message,
+        context=context,
+    )
     return {
         "success": True,
         "recipient": recipient,
         "message_id": str(message["Message-ID"]),
+        "sent_copy_saved": sent_copy_saved,
     }
+
+
+def _save_sent_copy(
+    *,
+    username: str,
+    password: str,
+    message: EmailMessage,
+    context: ssl.SSLContext,
+) -> bool:
+    """Сохраняет принятую SMTP-сервером копию в IMAP-папке Sent."""
+    try:
+        with imaplib.IMAP4_SSL(
+            MAILRU_IMAP_HOST,
+            MAILRU_IMAP_PORT,
+            ssl_context=context,
+            timeout=SMTP_TIMEOUT_SECONDS,
+        ) as imap:
+            imap.login(username, password)
+            status, mailboxes = imap.list()
+            sent_mailbox = "Sent"
+            if status == "OK":
+                for raw_mailbox in mailboxes or []:
+                    if b"\\Sent" not in raw_mailbox:
+                        continue
+                    decoded = raw_mailbox.decode("ascii", errors="ignore")
+                    match = re.search(r'(?:"([^"]+)"|(\S+))$', decoded)
+                    if match:
+                        sent_mailbox = match.group(1) or match.group(2)
+                    break
+            status, _ = imap.append(
+                sent_mailbox,
+                r"(\Seen)",
+                imaplib.Time2Internaldate(time.time()),
+                message.as_bytes(),
+            )
+            return status == "OK"
+    except (imaplib.IMAP4.error, OSError, ssl.SSLError):
+        # SMTP уже принял письмо. Ошибка сохранения копии не должна
+        # провоцировать повторную отправку и дубликат у получателя.
+        return False
 
 
 async def send_mailru_email(

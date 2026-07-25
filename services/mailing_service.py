@@ -94,6 +94,12 @@ class ContactMailingService:
                 subject=email_subject,
                 text=message,
             )
+            if result.get("sent_copy_saved") is False:
+                log.warning(
+                    "Mail.ru принял письмо контакту ID={}, но копия не "
+                    "сохранилась в IMAP-папке «Отправленные»",
+                    contact.id,
+                )
         except Exception as error:
             log.exception(
                 "Не удалось отправить email контакту ID={}",

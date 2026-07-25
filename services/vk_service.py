@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 
 
@@ -50,7 +50,7 @@ class VkService:
                 ).first
                 try:
                     await open_dialog.click(timeout=15_000)
-                except PlaywrightTimeoutError as error:
+                except (PlaywrightTimeoutError, AssertionError) as error:
                     raise RuntimeError(
                         "VK не предоставил кнопку отправки сообщения; "
                         "возможно, сообщения закрыты или изменилась разметка"
@@ -72,7 +72,13 @@ class VkService:
                     await send_button.click(timeout=10_000)
                 else:
                     await editor.press("Enter")
-                await page.wait_for_timeout(1000)
+                try:
+                    await expect(editor).to_be_empty(timeout=10_000)
+                except PlaywrightTimeoutError as error:
+                    raise RuntimeError(
+                        "VK не подтвердил отправку: редактор сообщения "
+                        "не очистился после команды отправки"
+                    ) from error
                 return {"success": True, "message_id": ""}
             finally:
                 await browser.close()

@@ -128,6 +128,12 @@ class MailingQueueController:
                 time.min,
                 tzinfo=self.timezone,
             ).astimezone(timezone.utc)
+            run_start = None
+            if started_at:
+                try:
+                    run_start = datetime.fromisoformat(started_at)
+                except ValueError:
+                    run_start = None
             sent_today = await session.scalar(
                 select(func.count(Communication.id)).where(
                     Communication.direction == "outgoing",
@@ -142,12 +148,29 @@ class MailingQueueController:
                     Communication.created_at >= day_start,
                 )
             )
+            sent_in_run = 0
+            failed_in_run = 0
+            if run_start is not None:
+                sent_in_run = await session.scalar(
+                    select(func.count(Communication.id)).where(
+                        Communication.direction == "outgoing",
+                        Communication.status == "sent",
+                        Communication.created_at >= run_start,
+                    )
+                )
+                failed_in_run = await session.scalar(
+                    select(func.count(Communication.id)).where(
+                        Communication.direction == "outgoing",
+                        Communication.status == "failed",
+                        Communication.created_at >= run_start,
+                    )
+                )
         return {
             "state": state,
             "approved_pending": int(pending or 0),
-            "sent_in_run": int(sent_today or 0),
+            "sent_in_run": int(sent_in_run or 0),
             "sent_today": int(sent_today or 0),
-            "failed_in_run": int(failed_today or 0),
+            "failed_in_run": int(failed_in_run or 0),
             "interval_seconds": self.interval_seconds,
             "daily_limit": self.daily_limit,
             "timezone": str(self.timezone),
