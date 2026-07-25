@@ -13,6 +13,7 @@ from database.models.communication import Communication
 from database.models.contact import Contact
 from services.logger import log
 from services.mailing_service import ContactMailingError, ContactMailingService
+from services.search_run_service import SearchRunService
 from services.telegram_service import TelegramService
 from utils.enums import ContactStatus
 from worker.celery_app import celery_app
@@ -24,6 +25,35 @@ def _redis() -> Redis:
         os.getenv("REDIS_URL", "redis://redis:6379/0"),
         decode_responses=True,
     )
+
+
+async def _execute_search(search_run_id: int) -> dict[str, str | int]:
+    engine = create_async_engine(
+        config.database.database_url,
+        poolclass=NullPool,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            search_run = await SearchRunService(session).execute(search_run_id)
+            return {
+                "search_run_id": search_run.id,
+                "status": search_run.status,
+                "found_count": search_run.found_count,
+                "saved_count": search_run.saved_count,
+            }
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(
+    name="worker.tasks.execute_search_run",
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)
+def execute_search_run(search_run_id: int):
+    return asyncio.run(_execute_search(search_run_id))
 
 
 async def _send(contact_id: int) -> dict[str, str | int]:

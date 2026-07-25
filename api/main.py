@@ -11,6 +11,7 @@ from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
 from services.statistics_service import StatisticsPeriod, StatisticsService
 from services.mailing_queue_service import mailing_queue
+from worker.tasks import execute_search_run
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
 
@@ -50,7 +51,9 @@ async def create_search_run(
     session: AsyncSession = Depends(provider.get_session),
 ):
     service = SearchRunService(session)
-    return await service.create_and_execute(data)
+    search_run = await service.create(data)
+    execute_search_run.apply_async(args=[search_run.id], queue="search")
+    return search_run
 
 
 @app.get("/search-runs", response_model=list[SearchRunRead])
@@ -84,17 +87,16 @@ async def ask(
 ):
     """Запускает управляемый поиск из обычного сообщения оператора."""
     service = SearchRunService(session)
-    search_run = await service.create_and_execute(
-        SearchRunCreate(query=data.text)
-    )
+    search_run = await service.create(SearchRunCreate(query=data.text))
+    task = execute_search_run.apply_async(args=[search_run.id], queue="search")
 
     return {
         "answer": (
-            search_run.agent_result
-            or search_run.error_message
-            or "Поиск завершён без текстового результата."
+            f"Поиск поставлен в очередь. ID запуска: {search_run.id}. "
+            "Результаты появятся в очереди проверки после завершения."
         ),
         "search_run_id": search_run.id,
+        "task_id": task.id,
         "status": search_run.status,
         "search_queries": search_run.search_queries,
         "found_count": search_run.found_count,
@@ -166,6 +168,15 @@ async def approve_contact(
             detail="Контакт уже был обработан",
         )
 
+    channel = (contact.preferred_channel or "").strip().lower()
+    recipient_address = (contact.recipient_address or "").strip()
+    if contact.email and (
+        channel not in {"email", "vk", "telegram"}
+        or recipient_address.lower() == contact.email.strip().lower()
+    ):
+        channel = "email"
+        contact.recipient_address = contact.email
+    contact.preferred_channel = channel or "email"
     contact.status = ContactStatus.APPROVED.value
     contact.next_action = "Готов к отправке"
 

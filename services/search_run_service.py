@@ -23,11 +23,23 @@ class SearchRunService:
         self.session = session
         self.repository = SearchRunRepository(session)
 
-    async def create_and_execute(self, data: SearchRunCreate) -> SearchRun:
+    async def create(self, data: SearchRunCreate) -> SearchRun:
         search_run = await self.repository.create(
             data.model_dump(mode="json")
         )
         await self.session.commit()
+        return search_run
+
+    async def execute(self, search_run_id: int) -> SearchRun:
+        search_run = await self.repository.get_by_id(search_run_id)
+        if search_run is None:
+            raise ValueError(f"Поисковый запуск ID={search_run_id} не найден")
+        if search_run.status not in {
+            SearchRunStatus.CREATED.value,
+            SearchRunStatus.FAILED.value,
+        }:
+            return search_run
+
         search_run.status = SearchRunStatus.RUNNING.value
         search_run.started_at = datetime.now(timezone.utc)
         try:
@@ -124,6 +136,10 @@ class SearchRunService:
         await self.session.commit()
         await self.session.refresh(search_run)
         return search_run
+
+    async def create_and_execute(self, data: SearchRunCreate) -> SearchRun:
+        search_run = await self.create(data)
+        return await self.execute(search_run.id)
 
     async def get_by_id(self, search_run_id: int) -> SearchRun | None:
         return await self.repository.get_by_id(search_run_id)

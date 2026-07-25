@@ -93,21 +93,6 @@ class ContactMailingService:
                 subject=email_subject,
                 text=message,
             )
-        except (VkCaptchaRequired, VkSessionExpired) as error:
-            await self.communication_repository.create(
-                {
-                    "contact_id": contact.id,
-                    "channel": channel,
-                    "direction": "outgoing",
-                    "message": message,
-                    "status": CommunicationStatus.FAILED.value,
-                }
-            )
-            contact.status = ContactStatus.REQUIRES_HUMAN.value
-            contact.next_action = str(error)
-            contact.last_contact_at = datetime.now(timezone.utc)
-            await self.session.commit()
-            raise ContactMailingError(str(error)) from error
         except Exception as error:
             log.exception(
                 "Не удалось отправить email контакту ID={}",
@@ -123,7 +108,9 @@ class ContactMailingService:
                 }
             )
             contact.status = ContactStatus.FAILED.value
-            contact.next_action = "Проверить ошибку отправки и повторить вручную"
+            contact.next_action = (
+                "Проверить настройки SMTP; временные ошибки повторит Celery"
+            )
             contact.last_contact_at = datetime.now(timezone.utc)
             await self.session.commit()
             raise ContactMailingError(str(error)) from error
@@ -157,7 +144,7 @@ class ContactMailingService:
             raise ContactMailingError("Контакт не найден")
 
         channel = (contact.preferred_channel or "").strip().lower()
-        if os.getenv("MAILING_DRY_RUN", "true").lower() == "true":
+        if os.getenv("MAILING_DRY_RUN", "false").lower() == "true":
             return await self._record_dry_run(contact, channel or "email")
         if channel in {"", "email"}:
             return await self.send_approved_email(
@@ -259,6 +246,21 @@ class ContactMailingService:
                     recipient_external_id=recipient,
                     text=message,
                 )
+        except (VkCaptchaRequired, VkSessionExpired) as error:
+            await self.communication_repository.create(
+                {
+                    "contact_id": contact.id,
+                    "channel": channel,
+                    "direction": "outgoing",
+                    "message": message,
+                    "status": CommunicationStatus.FAILED.value,
+                }
+            )
+            contact.status = ContactStatus.REQUIRES_HUMAN.value
+            contact.next_action = str(error)
+            contact.last_contact_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            raise ContactMailingError(str(error)) from error
         except Exception as error:
             await self.communication_repository.create(
                 {

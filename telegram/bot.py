@@ -1,5 +1,6 @@
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command, CommandStart
+from aiogram.filters import StateFilter
 
 from api.client import ApiClient
 from services.logger import log
@@ -23,7 +24,7 @@ async def start_handler(message: types.Message):
 async def review_handler(message: types.Message):
     await command_handler.review(message)
 
-@dp.message()
+@dp.message(StateFilter(None))
 async def message_handler(message: types.Message):
     """Перенаправляет входящие сообщения Telegram в обработчик команд."""
     user_id = str(message.from_user.id)

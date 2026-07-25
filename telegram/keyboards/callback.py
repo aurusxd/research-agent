@@ -296,12 +296,6 @@ async def review_contact(
                 action=action,
             )
 
-        if action == "approve":
-            await callback.answer(
-                    "Контакт одобрен и добавлен в автоматическую очередь."
-                )
-            return
-
         contacts = await api_client.get_review_queue(user_id)
     except aiohttp.ClientResponseError as exc:
         log.exception("Ошибка API при проверке контакта")
@@ -337,7 +331,11 @@ async def review_contact(
         )
         await callback.answer(
             (
-                "Контакт отклонён"
+                (
+                    "Контакт одобрен и добавлен в автоматическую очередь"
+                    if action == "approve"
+                    else "Контакт отклонён"
+                )
             )
         )
         return
@@ -357,6 +355,10 @@ async def review_contact(
     )
     await callback.answer(
         (
-            "Контакт отклонён"
+            (
+                "Контакт одобрен и добавлен в автоматическую очередь"
+                if action == "approve"
+                else "Контакт отклонён"
+            )
         )
     )

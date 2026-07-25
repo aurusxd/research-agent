@@ -1,3 +1,7 @@
+import asyncio
+import os
+import re
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import provider
@@ -37,7 +41,10 @@ async def save_contact(
     ) -> dict:
     log.info("Зашел в save_contact")
     try:
-        source_url_match = re.search(r"https?://\S+", source)
+        source_urls = [
+            item.rstrip(".,;)")
+            for item in re.findall(r"https?://\S+", source)
+        ][:5]
         if (
             os.getenv(
                 "CONTACT_SOURCE_VERIFICATION_REQUIRED",
@@ -45,36 +52,38 @@ async def save_contact(
             ).lower()
             == "true"
         ):
-            if source_url_match is None:
+            if not source_urls:
                 raise ValueError("Не указан URL первоисточника")
-            verification = await asyncio.to_thread(
-                verify_source,
-                source_url_match.group(0).rstrip(".,;)"),
+            verifications = await asyncio.gather(
+                *[
+                    asyncio.to_thread(verify_source, url)
+                    for url in source_urls
+                ]
             )
-            if not verification.get("verified"):
+            verified_sources = [
+                item for item in verifications if item.get("verified")
+            ]
+            if not verified_sources:
                 raise ValueError("Первоисточник не удалось проверить")
-            public_contacts = {
-                *(verification.get("emails") or []),
-                *(verification.get("social_links") or []),
+            verified_emails = {
+                item.strip().lower()
+                for verification in verified_sources
+                for item in verification.get("emails") or []
             }
-            supplied_contacts = {
-                value
-                for value in (
+            if email and email.strip().lower() not in verified_emails:
+                log.warning(
+                    "Email {} не подтверждён на странице-источнике; "
+                    "контакт будет сохранён без него",
                     email,
-                    vk_url,
-                    telegram_url,
-                    website,
-                    contact_form_url,
                 )
-                if value
-            }
-            if not public_contacts.intersection(supplied_contacts) and email:
-                if email.lower() not in {
-                    item.lower() for item in verification.get("emails") or []
-                }:
-                    raise ValueError(
-                        "Email не подтверждён на странице-источнике"
-                    )
+                if recipient_address and (
+                    recipient_address.strip().lower()
+                    == email.strip().lower()
+                ):
+                    recipient_address = None
+                email = None
+                if (preferred_channel or "").strip().lower() == "email":
+                    preferred_channel = None
         data = SaveContactToolArgs(
             search_run_id=search_run_id,
             organization_name=organization_name,
@@ -135,13 +144,10 @@ async def save_contact(
             "contact_id": contact.id,
             "message": "Организация сохранена",
         }
-    except Exception as e:
+    except Exception:
         log.exception("Ошибка сохранения")
         return {
             "success": False,
             "status": "error",
             "message": "Ошибка сохранения",
         }
-import asyncio
-import os
-import re

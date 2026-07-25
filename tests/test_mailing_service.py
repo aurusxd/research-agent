@@ -87,6 +87,6 @@ class ContactMailingServiceTest(IsolatedAsyncioTestCase):
         self.assertEqual(self.contact.status, ContactStatus.FAILED.value)
         self.assertEqual(
             self.contact.next_action,
-            "Проверить ошибку отправки и повторить вручную",
+            "Проверить настройки SMTP; временные ошибки повторит Celery",
         )
         self.session.commit.assert_awaited_once()
