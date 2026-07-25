@@ -94,9 +94,14 @@ class SaveContactToolArgs(BaseModel):
     preferred_channel: str | None = Field(
         default=None,
         description=(
-            "Предпочтительный канал: email, contact_form, phone, vk, telegram, "
-            "ok, reddit или другой публичный канал"
+            "Предпочтительный канал, выбранный агентом: email, "
+            "contact_form, vk, telegram или ok"
         ),
+    )
+
+    ok_url: str | None = Field(
+        default=None,
+        description="Ссылка на официальный профиль или группу в OK.ru",
     )
 
     generated_message: str | None = Field(

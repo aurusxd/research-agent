@@ -11,6 +11,10 @@ from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
 from services.statistics_service import StatisticsPeriod, StatisticsService
 from services.mailing_queue_service import mailing_queue
+from services.delivery_channel_resolver import (
+    DeliveryChannelResolutionError,
+    resolve_delivery_channel,
+)
 from worker.tasks import execute_search_run
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
@@ -172,15 +176,10 @@ async def approve_contact(
             detail="Контакт уже был обработан",
         )
 
-    channel = (contact.preferred_channel or "").strip().lower()
-    recipient_address = (contact.recipient_address or "").strip()
-    if contact.email and (
-        channel not in {"email", "vk", "telegram"}
-        or recipient_address.lower() == contact.email.strip().lower()
-    ):
-        channel = "email"
-        contact.recipient_address = contact.email
-    contact.preferred_channel = channel or "email"
+    try:
+        contact.preferred_channel = resolve_delivery_channel(contact)
+    except DeliveryChannelResolutionError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     contact.status = ContactStatus.APPROVED.value
     contact.next_action = "Готов к отправке"
 

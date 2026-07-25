@@ -50,6 +50,7 @@ class Contact(Base):
 
     vk_url: Mapped[str | None] = mapped_column(String(500))
     telegram_url: Mapped[str | None] = mapped_column(String(500))
+    ok_url: Mapped[str | None] = mapped_column(String(500))
     youtube_url: Mapped[str | None] = mapped_column(String(500))
     rutube_url: Mapped[str | None] = mapped_column(String(500))
     dzen_url: Mapped[str | None] = mapped_column(String(500))

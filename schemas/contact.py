@@ -23,6 +23,7 @@ class ContactCreate(BaseModel):
 
     vk_url: str | None = None
     telegram_url: str | None = None
+    ok_url: str | None = None
     youtube_url: str | None = None
     rutube_url: str | None = None
     dzen_url: str | None = None
@@ -58,6 +59,7 @@ class ContactUpdate(BaseModel):
 
     vk_url: str | None = None
     telegram_url: str | None = None
+    ok_url: str | None = None
     youtube_url: str | None = None
     rutube_url: str | None = None
     dzen_url: str | None = None

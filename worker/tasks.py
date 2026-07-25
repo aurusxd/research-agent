@@ -19,6 +19,7 @@ from services.telegram_service import TelegramService
 from utils.enums import ContactStatus
 from worker.celery_app import celery_app
 from worker.policy import is_temporary_error
+from worker.routing import queue_for_channel
 
 
 def _redis() -> Redis:
@@ -144,6 +145,25 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                 ).send_approved(contact_id)
             except ContactMailingError as error:
                 contact = await session.get(Contact, contact_id)
+                if (
+                    contact
+                    and contact.preferred_channel == "contact_form"
+                    and contact.email
+                    and contact.status != ContactStatus.REQUIRES_HUMAN.value
+                ):
+                    contact.preferred_channel = "email"
+                    contact.recipient_address = contact.email
+                    contact.status = ContactStatus.QUEUED.value
+                    contact.next_action = (
+                        "Форма не отправилась; автоматический fallback на email"
+                    )
+                    await session.commit()
+                    return {
+                        "contact_id": contact_id,
+                        "status": "fallback",
+                        "fallback_channel": "email",
+                        "error": str(error),
+                    }
                 retryable = is_temporary_error(error)
                 if contact and contact.status in {
                     ContactStatus.SENDING.value,
@@ -171,7 +191,7 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                     == ContactStatus.REQUIRES_HUMAN.value
                 ):
                     await TelegramService.notify_operator(
-                        f"VK требует вмешательства для контакта ID={contact_id}.\n"
+                        f"Канал требует вмешательства для контакта ID={contact_id}.\n"
                         f"{contact.next_action}"
                     )
                 return {
@@ -310,6 +330,13 @@ def send_approved_contact(self, contact_id: int):
         raise self.retry(countdown=300)
 
     result = asyncio.run(_send(contact_id))
+    fallback_channel = result.get("fallback_channel")
+    if isinstance(fallback_channel, str):
+        send_approved_contact.apply_async(
+            args=[contact_id],
+            queue=queue_for_channel(fallback_channel),
+        )
+        return result
     if result.get("retryable"):
         if self.request.retries >= 3:
             asyncio.run(
@@ -363,8 +390,6 @@ async def _recover_stuck() -> list[tuple[int, str | None]]:
 
 @celery_app.task(name="worker.tasks.recover_stuck_contacts")
 def recover_stuck_contacts():
-    from worker.routing import queue_for_channel
-
     recovered = asyncio.run(_recover_stuck())
     for contact_id, channel in recovered:
         send_approved_contact.apply_async(

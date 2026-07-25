@@ -8,7 +8,7 @@ EMAIL_RE = re.compile(
     r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-zА-Яа-я]{2,}(?![\w.-])"
 )
 SOCIAL_RE = re.compile(
-    r"https?://(?:vk\.com|t\.me|telegram\.me)/[A-Za-z0-9_.+-]+",
+    r"https?://(?:vk\.com|ok\.ru|t\.me|telegram\.me)/[A-Za-z0-9_.+/-]+",
     re.IGNORECASE,
 )
 

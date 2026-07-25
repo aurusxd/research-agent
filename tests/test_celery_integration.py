@@ -25,6 +25,13 @@ class CeleryInfrastructureIntegrationTest(TestCase):
             for queue in queues
         }
         self.assertTrue(
-            {"search", "mailing_email", "mailing_telegram", "mailing_vk"}
+            {
+                "search",
+                "mailing_email",
+                "mailing_telegram",
+                "mailing_vk",
+                "mailing_contact_form",
+                "mailing_ok",
+            }
             <= queue_names
         )

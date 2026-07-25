@@ -9,7 +9,13 @@ from database.repositories.communication_repository import (
 )
 from database.repositories.contact_repository import ContactRepository
 from services.email_sender import send_mailru_email
-from services.channel_sender import send_telegram_message, send_vk_message
+from services.channel_sender import (
+    send_ok_message,
+    send_telegram_message,
+    send_vk_message,
+    submit_contact_form,
+)
+from services.delivery_channel_resolver import resolve_delivery_channel
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 from services.logger import log
 from utils.enums import CommunicationStatus, ContactStatus
@@ -150,15 +156,15 @@ class ContactMailingService:
         if contact is None:
             raise ContactMailingError("Контакт не найден")
 
-        channel = (contact.preferred_channel or "").strip().lower()
+        channel = resolve_delivery_channel(contact)
         if os.getenv("MAILING_DRY_RUN", "false").lower() == "true":
             return await self._record_dry_run(contact, channel or "email")
-        if channel in {"", "email"}:
+        if channel == "email":
             return await self.send_approved_email(
                 contact_id,
                 subject=subject,
             )
-        if channel not in {"vk", "telegram"}:
+        if channel not in {"vk", "telegram", "contact_form", "ok"}:
             raise ContactNotReadyError(
                 f"Автоматическая отправка для канала {channel!r} не поддерживается"
             )
@@ -244,7 +250,7 @@ class ContactMailingService:
                     recipient_url=recipient,
                     text=message,
                 )
-            else:
+            elif channel == "telegram":
                 recipient = (contact.recipient_external_id or "").strip()
                 if not recipient:
                     raise ContactNotReadyError(
@@ -252,6 +258,35 @@ class ContactMailingService:
                     )
                 result = await send_telegram_message(
                     recipient_external_id=recipient,
+                    text=message,
+                )
+            elif channel == "contact_form":
+                recipient = (
+                    contact.contact_form_url
+                    or contact.recipient_address
+                    or ""
+                ).strip()
+                if not recipient:
+                    raise ContactNotReadyError(
+                        "Для contact_form отсутствует URL формы"
+                    )
+                result = await submit_contact_form(
+                    recipient_url=recipient,
+                    text=message,
+                    organization_name=contact.organization_name,
+                )
+            else:
+                recipient = (
+                    contact.ok_url
+                    or contact.recipient_address
+                    or ""
+                ).strip()
+                if not recipient:
+                    raise ContactNotReadyError(
+                        "Для OK.ru отсутствует URL профиля или группы"
+                    )
+                result = await send_ok_message(
+                    recipient_url=recipient,
                     text=message,
                 )
         except (VkCaptchaRequired, VkSessionExpired) as error:

@@ -221,6 +221,7 @@ SYSTEM_PROMPT="""
 6. В generated_message сохраняй готовый персонализированный черновик приглашения.
 7. В preferred_channel сохраняй рекомендуемый канал связи.
 8. В contact_form_url сохраняй прямую ссылку на официальную форму обратной связи. Не подставляй туда главную страницу сайта.
+9. В ok_url сохраняй прямую ссылку на профиль или группу OK.ru.
 9. В recipient_address сохраняй точный публичный адрес выбранного получателя.
 10. В recipient_external_id сохраняй ID внутри платформы только тогда, когда он достоверно определён; иначе передавай null.
 11. Считай организацию и её черновик сохранёнными только в том случае, если save_contact вернул success=true.
@@ -234,8 +235,8 @@ SYSTEM_PROMPT="""
 
 Заполни:
 
-- preferred_channel — email, contact_form, vk, telegram,
-  ok, reddit или другой канал;
+- preferred_channel — строго один из поддерживаемых каналов:
+  email, contact_form, vk, telegram или ok;
 - recipient_address — публичный адрес выбранного получателя;
 - recipient_external_id — ID пользователя или сообщества,
   только если он достоверно найден;
@@ -254,16 +255,20 @@ recipient_address = "https://vk.com/museum"
 Telegram:
 preferred_channel = "telegram"
 recipient_address = "https://t.me/museum"
+recipient_external_id = "123456789"
+
+Форма на сайте:
+preferred_channel = "contact_form"
+contact_form_url = "https://museum.example.ru/contacts"
+recipient_address = "https://museum.example.ru/contacts"
 
 Одноклассники:
 preferred_channel = "ok"
 recipient_address = "https://ok.ru/group/123456"
-
-Reddit:
-preferred_channel = "reddit"
-recipient_address = "https://reddit.com/user/example"
+ok_url = "https://ok.ru/group/123456"
 
 recipient_address должен соответствовать preferred_channel. Не используй главную страницу сайта вместо конкретного адреса получателя. Не придумывай recipient_external_id по ссылке, если не уверен в правилах идентификаторов соответствующей платформы.
+Выбирай telegram только если recipient_external_id достоверно известен.
 
 ОГРАНИЧЕНИЯ
 

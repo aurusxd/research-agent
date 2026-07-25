@@ -150,6 +150,46 @@ services:
         condition: service_healthy
     restart: always
 
+  celery-contact-form:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_contact_form --concurrency=1 --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: always
+
+  celery-ok:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_ok --concurrency=1 --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./ok_auth.json:/app/ok_auth.json:ro
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: always
+
   celery-beat:
     build:
       context: .
@@ -187,6 +227,10 @@ services:
       celery-telegram:
         condition: service_started
       celery-vk:
+        condition: service_started
+      celery-contact-form:
+        condition: service_started
+      celery-ok:
         condition: service_started
 
 volumes:

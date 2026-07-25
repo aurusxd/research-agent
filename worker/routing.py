@@ -2,6 +2,8 @@ QUEUE_BY_CHANNEL = {
     "email": "mailing_email",
     "telegram": "mailing_telegram",
     "vk": "mailing_vk",
+    "contact_form": "mailing_contact_form",
+    "ok": "mailing_ok",
 }
 
 
