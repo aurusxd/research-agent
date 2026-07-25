@@ -155,10 +155,26 @@ async def approve_contact(
 
     await session.commit()
 
+    try:
+        queue = await mailing_queue.enqueue_contact(
+            contact.id,
+            contact.preferred_channel,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Контакт одобрен, но Redis/Celery недоступен. "
+                "Запустите рассылку повторно."
+            ),
+        ) from error
+    await session.refresh(contact)
+
     return {
         "success": True,
         "contact_id": contact.id,
         "status": contact.status,
+        "queue": queue,
     }
 
 

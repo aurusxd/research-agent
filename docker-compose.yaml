@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   db:
     image: postgres:16
     container_name: PostgreSQL
@@ -11,7 +23,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
 
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
 
   bot:
     build:
@@ -35,10 +47,18 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
       - ./vk_auth.json:/app/vk_auth.json:ro
     depends_on:
-      - db
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
   migrations:
     build:
       context: .
@@ -46,6 +66,70 @@ services:
     command: uv run alembic upgrade head
     env_file:
       - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
     depends_on:
       - db
-    
+
+  celery-email:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_email --concurrency=1 --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: always
+
+  celery-telegram:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_telegram --concurrency=1 --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: always
+
+  celery-vk:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_vk --concurrency=1 --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./vk_auth.json:/app/vk_auth.json:ro
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  redis_data:

@@ -58,7 +58,9 @@ class ContactMailingService:
 
         if contact.status not in {
             ContactStatus.APPROVED.value,
+            ContactStatus.QUEUED.value,
             ContactStatus.FAILED.value,
+            ContactStatus.SENDING.value,
         }:
             raise ContactNotReadyError(
                 "Перед отправкой контакт должен быть одобрен оператором"
@@ -160,7 +162,9 @@ class ContactMailingService:
             )
         if contact.status not in {
             ContactStatus.APPROVED.value,
+            ContactStatus.QUEUED.value,
             ContactStatus.FAILED.value,
+            ContactStatus.SENDING.value,
         }:
             raise ContactNotReadyError(
                 "Перед отправкой контакт должен быть одобрен оператором"

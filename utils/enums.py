@@ -12,6 +12,8 @@ class ContactStatus(str, Enum):
     NEW = "new"
     PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
+    QUEUED = "queued"
+    SENDING = "sending"
     REJECTED = "rejected"
     SENT = "sent"
     REPLIED = "replied"
