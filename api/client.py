@@ -185,7 +185,7 @@ class ApiClient:
     ) -> dict[str, Any]:
         """Отправляет одобренное приглашение по email."""
         session = await self._get_session(user_id)
-        url = f"{API_BASE_URL}/contacts/{contact_id}/send-email"
+        url = f"{API_BASE_URL}/contacts/{contact_id}/send"
 
         async with session.post(url, json={}) as response:
             if response.status != 200:  # noqa: PLR2004
@@ -212,6 +212,39 @@ class ApiClient:
         if not isinstance(data, dict) or data.get("success") is not True:
             raise InvalidReviewResponseError
 
+        return data
+
+    async def control_mailing(
+        self,
+        user_id: str,
+        action: str,
+    ) -> dict[str, Any]:
+        if action == "status":
+            method = "get"
+            url = f"{API_BASE_URL}/mailing/status"
+        elif action in {"start", "pause", "resume", "stop"}:
+            method = "post"
+            url = f"{API_BASE_URL}/mailing/{action}"
+        else:
+            raise ValueError(f"Неизвестное действие рассылки: {action}")
+
+        session = await self._get_session(user_id)
+        async with session.request(method, url) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+        if not isinstance(data, dict) or not isinstance(
+            data.get("state"),
+            str,
+        ):
+            raise ResponseValidationError
         return data
 
     def _validate_response(self, data: Any) -> str:

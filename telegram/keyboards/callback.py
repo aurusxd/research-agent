@@ -1,5 +1,6 @@
-import aiohttp
 from html import escape
+
+import aiohttp
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
@@ -7,12 +8,74 @@ from api.client import ApiClient, InvalidReviewResponseError
 from services.logger import log
 from telegram.keyboards.callback_data import ReviewCallback
 from telegram.keyboards.main import keyboard_build
-from telegram.keyboards.menu import build_statistics_menu
+from telegram.keyboards.menu import build_mailing_menu, build_statistics_menu
 from telegram.review import build_review_card
 from telegram.statistics import build_statistics_text
 from utils.enums import ContactStatus
 
 router = Router()
+
+
+def _mailing_status_text(data: dict) -> str:
+    labels = {
+        "running": "работает",
+        "paused": "на паузе",
+        "stopped": "остановлена",
+        "idle": "ожидает одобренные письма",
+        "limit_reached": "достигнут дневной лимит",
+    }
+    state = str(data.get("state") or "stopped")
+    text = (
+        "📨 <b>Автоматическая рассылка</b>\n\n"
+        f"Статус: <b>{labels.get(state, state)}</b>\n"
+        f"В очереди: {data.get('approved_pending', 0)}\n"
+        f"Отправлено за запуск: {data.get('sent_in_run', 0)}\n"
+        f"Отправлено сегодня: {data.get('sent_today', 0)}\n"
+        f"Ошибок за запуск: {data.get('failed_in_run', 0)}\n"
+        f"Интервал: {data.get('interval_seconds', 0)} сек.\n"
+        f"Лимит: {data.get('daily_limit', 0)} писем\n"
+        f"Часовой пояс: {escape(str(data.get('timezone', '—')))}"
+    )
+    if data.get("last_error"):
+        text += f"\n\nПоследняя ошибка: {escape(str(data['last_error']))}"
+    return text
+
+
+@router.callback_query(F.data.startswith("ui:mailing:"))
+async def control_mailing(
+    callback: CallbackQuery,
+    api_client: ApiClient,
+) -> None:
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        await callback.answer("Не удалось управлять рассылкой", show_alert=True)
+        return
+
+    action = (callback.data or "").rsplit(":", 1)[-1]
+    if action == "schedule":
+        await callback.answer(
+            "Расписание появится после MVP. Используйте «Начать сейчас».",
+            show_alert=True,
+        )
+        return
+    try:
+        data = await api_client.control_mailing(
+            str(callback.from_user.id),
+            action,
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Не удалось выполнить действие рассылки {}", action)
+        await callback.answer(
+            "Не удалось изменить состояние рассылки",
+            show_alert=True,
+        )
+        return
+
+    await callback.message.edit_text(
+        _mailing_status_text(data),
+        parse_mode="HTML",
+        reply_markup=build_mailing_menu(),
+    )
+    await callback.answer("Состояние рассылки обновлено")
 
 
 @router.callback_query(F.data.startswith("ui:review:"))
@@ -194,7 +257,7 @@ async def review_contact(
                         )
                     )
                 await callback.answer(
-                    "Контакт одобрен. Подтвердите отправку email."
+                    "Контакт одобрен и добавлен в автоматическую очередь."
                 )
                 return
 

@@ -12,3 +12,4 @@ __pycache__
 *.py[cod]
 *.log
 *.tsbuildinfo
+vk_auth.json

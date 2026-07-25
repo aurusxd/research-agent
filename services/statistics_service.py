@@ -10,7 +10,6 @@ from database.repositories.contact_repository import ContactRepository
 from schemas.statistics import StatisticsRead
 from utils.enums import CommunicationStatus, ContactStatus, SearchRunStatus
 
-
 StatisticsPeriod = Literal["today", "week", "all"]
 NOVOSIBIRSK = ZoneInfo("Asia/Novosibirsk")
 

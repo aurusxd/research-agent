@@ -13,6 +13,7 @@ from services.mailing_service import (
     ContactMailingService,
     ContactNotReadyError,
 )
+from services.mailing_queue_service import mailing_queue
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
 
@@ -219,6 +220,57 @@ async def send_contact_email(
         "status": ContactStatus.SENT.value,
         "message_id": message_id,
     }
+
+
+@app.post("/contacts/{contact_id}/send")
+async def send_contact_message(
+    contact_id: int,
+    data: SendEmailRequest | None = None,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    service = ContactMailingService(session)
+    try:
+        communication, message_id = await service.send_approved(
+            contact_id,
+            subject=data.subject if data else None,
+        )
+    except ContactAlreadySentError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ContactNotReadyError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ContactMailingError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "success": True,
+        "contact_id": contact_id,
+        "communication_id": communication.id,
+        "channel": communication.channel,
+        "status": ContactStatus.SENT.value,
+        "message_id": message_id,
+    }
+
+
+@app.get("/mailing/status")
+async def get_mailing_status():
+    return await mailing_queue.status()
+
+
+@app.post("/mailing/{action}")
+async def control_mailing(action: str):
+    actions = {
+        "start": mailing_queue.start,
+        "pause": mailing_queue.pause,
+        "resume": mailing_queue.resume,
+        "stop": mailing_queue.stop,
+    }
+    handler = actions.get(action)
+    if handler is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Допустимые действия: start, pause, resume, stop",
+        )
+    return await handler()
 
 @app.get("/health")
 async def health_check():

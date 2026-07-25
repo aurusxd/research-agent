@@ -8,8 +8,8 @@ from agent.core import ask_agent, create_search_plan
 from agent.tools.web_search import search_web_results
 from database.models import SearchRun
 from database.repositories.search_run_repository import SearchRunRepository
-from services.logger import log
 from schemas.search_run import SearchRunCreate
+from services.logger import log
 from services.search_query_planner import (
     build_search_queries,
     merge_search_results,

@@ -65,6 +65,7 @@ def build_mailing_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="⏯ Продолжить", callback_data="ui:mailing:resume"),
             ],
             [InlineKeyboardButton(text="⛔ Остановить рассылку", callback_data="ui:mailing:stop")],
+            [InlineKeyboardButton(text="🔄 Обновить статус", callback_data="ui:mailing:status")],
         ],
     )
 

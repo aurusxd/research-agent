@@ -29,6 +29,8 @@ RUN uv sync \
     --frozen \
     --no-dev
 
+RUN uv run playwright install --with-deps chromium
+
 FROM base AS runtime
 FROM runtime AS bot
 CMD ["uv", "run", "python", "main.py"]
