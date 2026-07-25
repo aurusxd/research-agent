@@ -28,7 +28,7 @@ class VkService:
                     storage_state=storage_state
                 )
                 page = await context.new_page()
-                await page.goto(url, wait_until="domcontentloaded")
+                await page.goto(url, wait_until="commit", timeout=30000)
                 page_text = (await page.locator("body").inner_text()).lower()
                 if "captcha" in page.url.lower() or "введите код с картинки" in page_text:
                     screenshot = str(
@@ -41,6 +41,9 @@ class VkService:
                     raise VkSessionExpired(
                         "VK-сессия истекла, обновите vk_auth.json"
                     )
+
+                page.locator('button:has-text("Подписаться")').click()
+                asyncio.sleep(2)
                 open_dialog = page.locator(
                     'a[href^="/write"], '
                     'a[href*="/write"], '
