@@ -71,6 +71,8 @@ class MailingQueueController:
                                 [
                                     ContactStatus.APPROVED.value,
                                     ContactStatus.QUEUED.value,
+                                    ContactStatus.DRY_RUN.value,
+                                    ContactStatus.FAILED.value,
                                 ]
                             )
                         )
@@ -115,6 +117,7 @@ class MailingQueueController:
                             ContactStatus.APPROVED.value,
                             ContactStatus.QUEUED.value,
                             ContactStatus.SENDING.value,
+                            ContactStatus.DRY_RUN.value,
                         ]
                     )
                 )

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from config import config
+from database.session import provider
 from database.models.communication import Communication
 from database.models.contact import Contact
 from services.logger import log
@@ -53,6 +54,9 @@ async def _execute_search(
     search_run_id: int,
     notification_chat_id: str | None = None,
 ) -> dict[str, str | int]:
+    # Provider is module-global, while every Celery task gets a fresh loop via
+    # asyncio.run(). Never reuse asyncpg connections created by an older loop.
+    await provider.engine.dispose(close=False)
     engine = create_async_engine(
         config.database.database_url,
         poolclass=NullPool,
@@ -83,6 +87,7 @@ async def _execute_search(
                     )
             return result
     finally:
+        await provider.engine.dispose()
         await engine.dispose()
 
 
@@ -115,6 +120,8 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                         [
                             ContactStatus.APPROVED.value,
                             ContactStatus.QUEUED.value,
+                            ContactStatus.DRY_RUN.value,
+                            ContactStatus.FAILED.value,
                         ]
                     ),
                 )
@@ -262,6 +269,29 @@ async def _release_stopped_contact(contact_id: int) -> None:
         await engine.dispose()
 
 
+async def _mark_retry_exhausted(contact_id: int, error: str) -> None:
+    engine = create_async_engine(
+        config.database.database_url,
+        poolclass=NullPool,
+    )
+    try:
+        async with async_sessionmaker(engine)() as session:
+            await session.execute(
+                update(Contact)
+                .where(Contact.id == contact_id)
+                .values(
+                    status=ContactStatus.FAILED.value,
+                    next_action=(
+                        "Автоматические повторы исчерпаны: "
+                        f"{error[:500]}"
+                    ),
+                )
+            )
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
 @celery_app.task(
     bind=True,
     name="worker.tasks.send_approved_contact",
@@ -281,6 +311,18 @@ def send_approved_contact(self, contact_id: int):
 
     result = asyncio.run(_send(contact_id))
     if result.get("retryable"):
+        if self.request.retries >= 3:
+            asyncio.run(
+                _mark_retry_exhausted(
+                    contact_id,
+                    str(result.get("error") or "временная ошибка"),
+                )
+            )
+            return {
+                **result,
+                "status": "failed",
+                "retry_exhausted": True,
+            }
         raise self.retry(
             countdown=min(900, 30 * (2 ** self.request.retries)),
             max_retries=3,

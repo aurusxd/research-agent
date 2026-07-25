@@ -63,6 +63,7 @@ class ContactMailingService:
             ContactStatus.QUEUED.value,
             ContactStatus.FAILED.value,
             ContactStatus.SENDING.value,
+            ContactStatus.DRY_RUN.value,
         }:
             raise ContactNotReadyError(
                 "Перед отправкой контакт должен быть одобрен оператором"
@@ -196,6 +197,7 @@ class ContactMailingService:
             ContactStatus.QUEUED.value,
             ContactStatus.FAILED.value,
             ContactStatus.SENDING.value,
+            ContactStatus.DRY_RUN.value,
         }:
             raise ContactNotReadyError(
                 "Перед отправкой контакт должен быть одобрен оператором"

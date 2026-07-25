@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 
@@ -39,12 +40,38 @@ class VkService:
                     raise VkSessionExpired(
                         "VK-сессия истекла, обновите vk_auth.json"
                     )
-                await page.get_by_text("Сообщение", exact=True).click()
-                await page.locator('[aria-label="Сообщение"]').fill(message)
+                open_dialog = page.locator(
+                    'a[href^="/write"], '
+                    'a[href*="/write"], '
+                    'a:has-text("Сообщение"), '
+                    'button:has-text("Сообщение"), '
+                    'a:has-text("Написать сообщение"), '
+                    'button:has-text("Написать сообщение")'
+                ).first
+                try:
+                    await open_dialog.click(timeout=15_000)
+                except PlaywrightTimeoutError as error:
+                    raise RuntimeError(
+                        "VK не предоставил кнопку отправки сообщения; "
+                        "возможно, сообщения закрыты или изменилась разметка"
+                    ) from error
+
+                editor = page.locator(
+                    '[contenteditable="true"][role="textbox"], '
+                    '[contenteditable="true"], '
+                    'textarea'
+                ).last
+                await editor.wait_for(state="visible", timeout=15_000)
+                await editor.fill(message)
                 await asyncio.sleep(1)
-                await page.locator(
-                    '[aria-label="Отправить сообщение"]'
-                ).click()
+                send_button = page.locator(
+                    '[aria-label="Отправить сообщение"], '
+                    'button:has-text("Отправить")'
+                ).first
+                if await send_button.count():
+                    await send_button.click(timeout=10_000)
+                else:
+                    await editor.press("Enter")
                 await page.wait_for_timeout(1000)
                 return {"success": True, "message_id": ""}
             finally:

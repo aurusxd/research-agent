@@ -2,6 +2,7 @@ from html import escape
 
 import aiohttp
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -113,12 +114,16 @@ async def control_mailing(
         )
         return
 
-    await callback.message.edit_text(
-        _mailing_status_text(data),
-        parse_mode="HTML",
-        reply_markup=build_mailing_menu(),
-    )
-    await callback.answer("Состояние рассылки обновлено")
+    try:
+        await callback.message.edit_text(
+            _mailing_status_text(data),
+            parse_mode="HTML",
+            reply_markup=build_mailing_menu(),
+        )
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error).lower():
+            raise
+    await callback.answer("Состояние рассылки актуально")
 
 
 @router.callback_query(F.data.startswith("ui:review:"))

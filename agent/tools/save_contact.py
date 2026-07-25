@@ -64,7 +64,19 @@ async def save_contact(
                 item for item in verifications if item.get("verified")
             ]
             if not verified_sources:
-                raise ValueError("Первоисточник не удалось проверить")
+                log.warning(
+                    "Первоисточники недоступны для автоматической проверки; "
+                    "контакт {} будет сохранён без email",
+                    organization_name,
+                )
+                if email and recipient_address and (
+                    recipient_address.strip().lower()
+                    == email.strip().lower()
+                ):
+                    recipient_address = None
+                email = None
+                if (preferred_channel or "").strip().lower() == "email":
+                    preferred_channel = None
             verified_emails = {
                 item.strip().lower()
                 for verification in verified_sources
