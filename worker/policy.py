@@ -5,6 +5,8 @@ TEMPORARY_ERROR_MARKERS = (
     "429",
     "too many requests",
     "connection",
+    "network is unreachable",
+    "подключ",
     "соедин",
     "временно",
 )

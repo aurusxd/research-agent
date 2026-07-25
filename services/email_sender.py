@@ -2,6 +2,7 @@ import asyncio
 import imaplib
 import os
 import re
+import socket
 import smtplib
 import ssl
 import time
@@ -14,6 +15,52 @@ MAILRU_SMTP_PORT = 465
 MAILRU_IMAP_HOST = "imap.mail.ru"
 MAILRU_IMAP_PORT = 993
 SMTP_TIMEOUT_SECONDS = 30
+
+
+def _ipv4_socket(
+    host: str,
+    port: int,
+    timeout: float | None,
+) -> socket.socket:
+    addresses = socket.getaddrinfo(
+        host,
+        port,
+        family=socket.AF_INET,
+        type=socket.SOCK_STREAM,
+    )
+    errors: list[OSError] = []
+    for _, socket_type, protocol, _, sockaddr in addresses:
+        connection = socket.socket(socket.AF_INET, socket_type, protocol)
+        connection.settimeout(timeout)
+        try:
+            connection.connect(sockaddr)
+            return connection
+        except OSError as error:
+            errors.append(error)
+            connection.close()
+    if errors:
+        raise errors[-1]
+    raise OSError(f"Не найден IPv4-адрес для {host}")
+
+
+class _IPv4SMTPSSL(smtplib.SMTP_SSL):
+    def _get_socket(
+        self,
+        host: str,
+        port: int,
+        timeout: float,
+    ) -> socket.socket:
+        raw_socket = _ipv4_socket(host, port, timeout)
+        return self.context.wrap_socket(raw_socket, server_hostname=host)
+
+
+class _IPv4IMAPSSL(imaplib.IMAP4_SSL):
+    def _create_socket(self, timeout):
+        raw_socket = _ipv4_socket(self.host, self.port, timeout)
+        return self.ssl_context.wrap_socket(
+            raw_socket,
+            server_hostname=self.host,
+        )
 
 
 class EmailConfigurationError(RuntimeError):
@@ -64,7 +111,12 @@ def _send_email_sync(
     context = ssl.create_default_context()
 
     try:
-        with smtplib.SMTP_SSL(
+        smtp_class = (
+            _IPv4SMTPSSL
+            if os.getenv("MAILRU_FORCE_IPV4", "true").lower() == "true"
+            else smtplib.SMTP_SSL
+        )
+        with smtp_class(
             host=MAILRU_SMTP_HOST,
             port=MAILRU_SMTP_PORT,
             timeout=SMTP_TIMEOUT_SECONDS,
@@ -99,7 +151,7 @@ def _send_email_sync(
         ) from error
     except OSError as error:
         raise EmailSendError(
-            "Не удалось подключиться к smtp.mail.ru:465"
+            "Временная ошибка подключения к smtp.mail.ru:465"
         ) from error
     except smtplib.SMTPException as error:
         raise EmailSendError(
@@ -129,7 +181,12 @@ def _save_sent_copy(
 ) -> bool:
     """Сохраняет принятую SMTP-сервером копию в IMAP-папке Sent."""
     try:
-        with imaplib.IMAP4_SSL(
+        imap_class = (
+            _IPv4IMAPSSL
+            if os.getenv("MAILRU_FORCE_IPV4", "true").lower() == "true"
+            else imaplib.IMAP4_SSL
+        )
+        with imap_class(
             MAILRU_IMAP_HOST,
             MAILRU_IMAP_PORT,
             ssl_context=context,

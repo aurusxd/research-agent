@@ -7,6 +7,13 @@ class WorkerPolicyTest(TestCase):
     def test_retries_temporary_transport_errors(self) -> None:
         self.assertTrue(is_temporary_error(RuntimeError("connection timeout")))
         self.assertTrue(is_temporary_error(RuntimeError("HTTP 429")))
+        self.assertTrue(
+            is_temporary_error(
+                RuntimeError(
+                    "Временная ошибка подключения к smtp.mail.ru:465"
+                )
+            )
+        )
 
     def test_does_not_retry_permanent_validation_errors(self) -> None:
         self.assertFalse(
