@@ -59,3 +59,15 @@ class TelegramService:
             "success": True,
             "message_id": str(result.get("message_id", "")),
         }
+
+    @staticmethod
+    async def notify_operator(text: str) -> None:
+        token = os.getenv("BOT_TOKEN", "").strip()
+        chat_id = os.getenv("OPERATOR_TELEGRAM_CHAT_ID", "").strip()
+        if not token or not chat_id:
+            return
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+            )

@@ -43,12 +43,14 @@ class MailingQueueController:
         queue = queue_for_channel(channel)
         from worker.tasks import send_approved_contact
 
-        send_approved_contact.apply_async(args=[contact_id], queue=queue)
+        task = send_approved_contact.apply_async(args=[contact_id], queue=queue)
         async with provider.session_factory() as session:
             contact = await session.get(Contact, contact_id)
-            if contact and contact.status == ContactStatus.APPROVED.value:
-                contact.status = ContactStatus.QUEUED.value
-                contact.next_action = f"В очереди {channel}"
+            if contact:
+                contact.celery_task_id = task.id
+                if contact.status == ContactStatus.APPROVED.value:
+                    contact.status = ContactStatus.QUEUED.value
+                    contact.next_action = f"В очереди {channel}"
                 await session.commit()
         return queue
 

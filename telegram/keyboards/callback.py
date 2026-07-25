@@ -2,6 +2,8 @@ from html import escape
 
 import aiohttp
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from api.client import ApiClient, InvalidReviewResponseError
@@ -14,6 +16,47 @@ from telegram.statistics import build_statistics_text
 from utils.enums import ContactStatus
 
 router = Router()
+
+
+class ReviewEditState(StatesGroup):
+    waiting_message = State()
+
+
+@router.message(ReviewEditState.waiting_message)
+async def save_edited_message(
+    message: Message,
+    state: FSMContext,
+    api_client: ApiClient,
+) -> None:
+    data = await state.get_data()
+    contact_id = data.get("contact_id")
+    text = (message.text or "").strip()
+    if not isinstance(contact_id, int) or not text:
+        await message.answer("Пришлите непустой текст приглашения.")
+        return
+    try:
+        await api_client.update_contact_message(
+            str(message.from_user.id),
+            contact_id,
+            text,
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Не удалось сохранить отредактированное приглашение")
+        await message.answer("Не удалось сохранить текст. Попробуйте ещё раз.")
+        return
+    await state.clear()
+    contacts = await api_client.get_review_queue(str(message.from_user.id))
+    contact = next(
+        (item for item in contacts if item.get("id") == contact_id),
+        None,
+    )
+    if contact is None:
+        await message.answer("Текст сохранён.")
+        return
+    await message.answer(
+        build_review_card(contact),
+        reply_markup=keyboard_build(contact_id),
+    )
 
 
 def _mailing_status_text(data: dict) -> str:
@@ -165,9 +208,10 @@ async def open_review_submenu(
 
     await callback.message.edit_text(
         build_review_card(contact),
-        reply_markup=keyboard_build(
-            contact_id,
-            approved=action == "approved",
+        reply_markup=(
+            None
+            if action == "approved"
+            else keyboard_build(contact_id)
         ),
     )
     await callback.answer()
@@ -225,6 +269,7 @@ async def review_contact(
     callback: CallbackQuery,
     callback_data: ReviewCallback,
     api_client: ApiClient,
+    state: FSMContext,
 ) -> None:
     """Обрабатывает решение оператора и показывает следующий контакт."""
     if callback.from_user is None:
@@ -234,41 +279,35 @@ async def review_contact(
     user_id = str(callback.from_user.id)
     action = callback_data.action
 
-    try:
-        if action == "send":
-            await api_client.send_contact_email(
-                user_id=user_id,
-                contact_id=callback_data.contact_id,
+    if action == "edit":
+        await state.set_state(ReviewEditState.waiting_message)
+        await state.update_data(contact_id=callback_data.contact_id)
+        await callback.answer()
+        if isinstance(callback.message, Message):
+            await callback.message.answer(
+                "Пришлите новый текст приглашения одним сообщением."
             )
-            contacts = await api_client.get_review_queue(user_id)
-        else:
-            await api_client.review_contact(
+        return
+
+    try:
+        await api_client.review_contact(
                 user_id=user_id,
                 contact_id=callback_data.contact_id,
                 action=action,
             )
 
-            if action == "approve":
-                if isinstance(callback.message, Message):
-                    await callback.message.edit_reply_markup(
-                        reply_markup=keyboard_build(
-                            callback_data.contact_id,
-                            approved=True,
-                        )
-                    )
-                await callback.answer(
+        if action == "approve":
+            await callback.answer(
                     "Контакт одобрен и добавлен в автоматическую очередь."
                 )
-                return
+            return
 
-            contacts = await api_client.get_review_queue(user_id)
+        contacts = await api_client.get_review_queue(user_id)
     except aiohttp.ClientResponseError as exc:
         log.exception("Ошибка API при проверке контакта")
         await callback.answer(
             (
-                f"Ошибка отправки: {exc.message}"
-                if action == "send"
-                else f"Ошибка API {exc.status}: {exc.message}"
+                f"Ошибка API {exc.status}: {exc.message}"
             )[:200],
             show_alert=True,
         )
@@ -298,9 +337,7 @@ async def review_contact(
         )
         await callback.answer(
             (
-                "Письмо отправлено"
-                if action == "send"
-                else "Контакт отклонён"
+                "Контакт отклонён"
             )
         )
         return
@@ -320,8 +357,6 @@ async def review_contact(
     )
     await callback.answer(
         (
-            "Письмо отправлено"
-            if action == "send"
-            else "Контакт отклонён"
+            "Контакт отклонён"
         )
     )

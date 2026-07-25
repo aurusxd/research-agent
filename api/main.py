@@ -1,4 +1,7 @@
+import os
+
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Request
 from pydantic import BaseModel
 
 from database.repositories.contact_repository import ContactRepository
@@ -7,12 +10,6 @@ from schemas.search_run import SearchRunCreate, SearchRunRead
 from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
 from services.statistics_service import StatisticsPeriod, StatisticsService
-from services.mailing_service import (
-    ContactAlreadySentError,
-    ContactMailingError,
-    ContactMailingService,
-    ContactNotReadyError,
-)
 from services.mailing_queue_service import mailing_queue
 from utils.enums import ContactStatus
 from database.session import AsyncSession, provider
@@ -20,12 +17,31 @@ from database.session import AsyncSession, provider
 
 app = FastAPI()
 
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    expected = os.getenv("INTERNAL_API_KEY", "").strip()
+    if (
+        expected
+        and request.url.path != "/health"
+        and request.headers.get("X-API-Key") != expected
+    ):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 class RequestData(BaseModel):
     text: str
 
 
-class SendEmailRequest(BaseModel):
-    subject: str | None = None
+class UpdateMessageRequest(BaseModel):
+    message: str
+
+
+class ContactResponseRequest(BaseModel):
+    response: str
+    interested: bool = False
 
 
 @app.post("/search-runs", response_model=SearchRunRead)
@@ -210,61 +226,54 @@ async def reject_contact(
     }
 
 
-@app.post("/contacts/{contact_id}/send-email")
-async def send_contact_email(
+@app.patch("/contacts/{contact_id}/message")
+async def update_contact_message(
     contact_id: int,
-    data: SendEmailRequest | None = None,
+    data: UpdateMessageRequest,
     session: AsyncSession = Depends(provider.get_session),
 ):
-    service = ContactMailingService(session)
-    try:
-        communication, message_id = await service.send_approved_email(
-            contact_id,
-            subject=data.subject if data else None,
+    contact = await ContactRepository(session).get_by_id(contact_id)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+    if contact.status != ContactStatus.PENDING_REVIEW.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Редактировать можно только до одобрения",
         )
-    except ContactAlreadySentError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except ContactNotReadyError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except ContactMailingError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
+    message = data.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="Текст не может быть пустым")
+    contact.generated_message = message
+    await session.commit()
     return {
         "success": True,
         "contact_id": contact_id,
-        "communication_id": communication.id,
-        "status": ContactStatus.SENT.value,
-        "message_id": message_id,
+        "status": contact.status,
     }
 
 
-@app.post("/contacts/{contact_id}/send")
-async def send_contact_message(
+@app.post("/contacts/{contact_id}/response")
+async def register_contact_response(
     contact_id: int,
-    data: SendEmailRequest | None = None,
+    data: ContactResponseRequest,
     session: AsyncSession = Depends(provider.get_session),
 ):
-    service = ContactMailingService(session)
-    try:
-        communication, message_id = await service.send_approved(
-            contact_id,
-            subject=data.subject if data else None,
-        )
-    except ContactAlreadySentError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except ContactNotReadyError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except ContactMailingError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    return {
-        "success": True,
-        "contact_id": contact_id,
-        "communication_id": communication.id,
-        "channel": communication.channel,
-        "status": ContactStatus.SENT.value,
-        "message_id": message_id,
-    }
+    contact = await ContactRepository(session).get_by_id(contact_id)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+    contact.response = data.response.strip()
+    contact.status = (
+        ContactStatus.INTERESTED.value
+        if data.interested
+        else ContactStatus.REPLIED.value
+    )
+    contact.next_action = (
+        "Передать заинтересованного участника ответственному"
+        if data.interested
+        else "Оценить ответ и определить следующее действие"
+    )
+    await session.commit()
+    return {"success": True, "contact_id": contact_id, "status": contact.status}
 
 
 @app.get("/mailing/status")

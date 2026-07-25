@@ -7,5 +7,5 @@ class ReviewCallback(
     CallbackData,
     prefix="review",
 ):
-    action: Literal["approve", "reject", "send"]
+    action: Literal["approve", "reject", "edit"]
     contact_id: int

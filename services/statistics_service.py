@@ -73,12 +73,24 @@ class StatisticsService:
                 0,
             ),
             approved=statuses.get(ContactStatus.APPROVED.value, 0),
+            queued=(
+                statuses.get(ContactStatus.QUEUED.value, 0)
+                + statuses.get(ContactStatus.SENDING.value, 0)
+            ),
             rejected=statuses.get(ContactStatus.REJECTED.value, 0),
             emails_sent=communications.get(
                 CommunicationStatus.SENT.value,
                 0,
             ),
             replies=statuses.get(ContactStatus.REPLIED.value, 0),
+            positive_replies=statuses.get(
+                ContactStatus.INTERESTED.value,
+                0,
+            ),
+            messages_sent=communications.get(
+                CommunicationStatus.SENT.value,
+                0,
+            ),
             errors=(
                 int(search_errors or 0)
                 + failed_runs

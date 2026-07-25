@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,7 @@ from database.repositories.communication_repository import (
 from database.repositories.contact_repository import ContactRepository
 from services.email_sender import send_yandex_email
 from services.channel_sender import send_telegram_message, send_vk_message
+from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 from services.logger import log
 from utils.enums import CommunicationStatus, ContactStatus
 
@@ -91,6 +93,21 @@ class ContactMailingService:
                 subject=email_subject,
                 text=message,
             )
+        except (VkCaptchaRequired, VkSessionExpired) as error:
+            await self.communication_repository.create(
+                {
+                    "contact_id": contact.id,
+                    "channel": channel,
+                    "direction": "outgoing",
+                    "message": message,
+                    "status": CommunicationStatus.FAILED.value,
+                }
+            )
+            contact.status = ContactStatus.REQUIRES_HUMAN.value
+            contact.next_action = str(error)
+            contact.last_contact_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            raise ContactMailingError(str(error)) from error
         except Exception as error:
             log.exception(
                 "Не удалось отправить email контакту ID={}",
@@ -140,6 +157,8 @@ class ContactMailingService:
             raise ContactMailingError("Контакт не найден")
 
         channel = (contact.preferred_channel or "").strip().lower()
+        if os.getenv("MAILING_DRY_RUN", "true").lower() == "true":
+            return await self._record_dry_run(contact, channel or "email")
         if channel in {"", "email"}:
             return await self.send_approved_email(
                 contact_id,
@@ -150,6 +169,31 @@ class ContactMailingService:
                 f"Автоматическая отправка для канала {channel!r} не поддерживается"
             )
         return await self._send_approved_social(contact, channel)
+
+    async def _record_dry_run(
+        self,
+        contact,
+        channel: str,
+    ) -> tuple[Communication, str]:
+        message = (contact.generated_message or "").strip()
+        if not message:
+            raise ContactNotReadyError(
+                "У контакта отсутствует текст приглашения"
+            )
+        communication = await self.communication_repository.create(
+            {
+                "contact_id": contact.id,
+                "channel": channel,
+                "direction": "outgoing",
+                "message": message,
+                "status": CommunicationStatus.DRY_RUN.value,
+            }
+        )
+        contact.status = ContactStatus.DRY_RUN.value
+        contact.next_action = "Dry-run завершён, реальная отправка не выполнялась"
+        contact.last_contact_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        return communication, f"dry-run-{communication.id}"
 
     async def _send_approved_social(
         self,

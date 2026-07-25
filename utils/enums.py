@@ -7,6 +7,7 @@ class CommunicationStatus(str, Enum):
     APPROVED = "approved"
     SENT = "sent"
     FAILED = "failed"
+    DRY_RUN = "dry_run"
 
 class ContactStatus(str, Enum):
     NEW = "new"
@@ -17,7 +18,10 @@ class ContactStatus(str, Enum):
     REJECTED = "rejected"
     SENT = "sent"
     REPLIED = "replied"
+    INTERESTED = "interested"
     FAILED = "failed"
+    DRY_RUN = "dry_run"
+    REQUIRES_HUMAN = "requires_human"
 
 
 class SearchRunStatus(str, Enum):

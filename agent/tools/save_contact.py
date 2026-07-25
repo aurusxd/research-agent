@@ -5,6 +5,7 @@ from database.repositories.contact_repository import ContactRepository
 from schemas.save_contact_schema import SaveContactToolArgs
 from services.logger import log
 from utils.enums import ContactStatus
+from services.source_verification import verify_source
 
 @provider.inject_session
 async def save_contact(
@@ -36,6 +37,44 @@ async def save_contact(
     ) -> dict:
     log.info("Зашел в save_contact")
     try:
+        source_url_match = re.search(r"https?://\S+", source)
+        if (
+            os.getenv(
+                "CONTACT_SOURCE_VERIFICATION_REQUIRED",
+                "true",
+            ).lower()
+            == "true"
+        ):
+            if source_url_match is None:
+                raise ValueError("Не указан URL первоисточника")
+            verification = await asyncio.to_thread(
+                verify_source,
+                source_url_match.group(0).rstrip(".,;)"),
+            )
+            if not verification.get("verified"):
+                raise ValueError("Первоисточник не удалось проверить")
+            public_contacts = {
+                *(verification.get("emails") or []),
+                *(verification.get("social_links") or []),
+            }
+            supplied_contacts = {
+                value
+                for value in (
+                    email,
+                    vk_url,
+                    telegram_url,
+                    website,
+                    contact_form_url,
+                )
+                if value
+            }
+            if not public_contacts.intersection(supplied_contacts) and email:
+                if email.lower() not in {
+                    item.lower() for item in verification.get("emails") or []
+                }:
+                    raise ValueError(
+                        "Email не подтверждён на странице-источнике"
+                    )
         data = SaveContactToolArgs(
             search_run_id=search_run_id,
             organization_name=organization_name,
@@ -103,3 +142,6 @@ async def save_contact(
             "status": "error",
             "message": "Ошибка сохранения",
         }
+import asyncio
+import os
+import re

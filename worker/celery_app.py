@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 from celery import Celery
 
@@ -23,6 +24,13 @@ celery_app.conf.update(
     task_annotations={
         "worker.tasks.send_approved_contact": {
             "rate_limit": os.getenv("MAILING_RATE_LIMIT", "2/m"),
+        }
+    },
+    beat_schedule={
+        "recover-stuck-mailing": {
+            "task": "worker.tasks.recover_stuck_contacts",
+            "schedule": timedelta(minutes=5),
+            "options": {"queue": "maintenance"},
         }
     },
 )

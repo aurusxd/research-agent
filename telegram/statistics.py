@@ -20,6 +20,9 @@ def build_statistics_text(data: dict[str, Any]) -> str:
         f"✅ Одобрено: {data.get('approved', 0)}\n"
         f"❌ Отклонено: {data.get('rejected', 0)}\n"
         f"📨 Отправлено email: {data.get('emails_sent', 0)}\n"
+        f"📦 В очереди: {data.get('queued', 0)}\n"
+        f"📤 Отправлено сообщений: {data.get('messages_sent', 0)}\n"
         f"💬 Получено ответов: {data.get('replies', 0)}\n"
+        f"🎯 Положительных ответов: {data.get('positive_replies', 0)}\n"
         f"⚠️ Ошибок: {data.get('errors', 0)}"
     )

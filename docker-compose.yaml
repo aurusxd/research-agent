@@ -76,7 +76,7 @@ services:
     build:
       context: .
       target: runtime
-    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_email --concurrency=1 --loglevel=INFO
+    command: uv run celery -A worker.celery_app:celery_app worker -Q mailing_email,maintenance --concurrency=1 --loglevel=INFO
     env_file:
       - .env
     environment:
@@ -130,6 +130,43 @@ services:
       redis:
         condition: service_healthy
     restart: always
+
+  celery-beat:
+    build:
+      context: .
+      target: runtime
+    command: uv run celery -A worker.celery_app:celery_app beat --loglevel=INFO
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+  integration-tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: runtime
+    command: uv run python -m unittest tests.test_celery_integration -v
+    env_file:
+      - .env
+    environment:
+      RUN_INTEGRATION_TESTS: "1"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery-email:
+        condition: service_started
+      celery-telegram:
+        condition: service_started
+      celery-vk:
+        condition: service_started
 
 volumes:
   redis_data:

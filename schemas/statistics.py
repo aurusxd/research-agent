@@ -13,4 +13,7 @@ class StatisticsRead(BaseModel):
     rejected: int
     emails_sent: int
     replies: int
+    positive_replies: int
+    queued: int
+    messages_sent: int
     errors: int

@@ -14,6 +14,7 @@ from services.search_query_planner import (
     build_search_queries,
     merge_search_results,
 )
+from services.source_verification import verify_source
 from utils.enums import SearchRunStatus
 
 
@@ -59,6 +60,21 @@ class SearchRunService:
                 key=lambda item: float(item.get("score") or 0),
                 reverse=True,
             )[:analysis_limit]
+            verification_results = await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        verify_source,
+                        str(item.get("url") or ""),
+                    )
+                    for item in analysis_results
+                ]
+            )
+            for item, verification in zip(
+                analysis_results,
+                verification_results,
+                strict=True,
+            ):
+                item["verification"] = verification
 
             search_run.executed_query_count = (
                 len(search_run.search_queries) - len(errors)
@@ -193,6 +209,7 @@ class SearchRunService:
             content = " ".join(
                 str(result.get("content") or "").split()
             )[:1200]
+            verification = result.get("verification") or {}
             parts.append(
                 "\n".join(
                     [
@@ -200,6 +217,28 @@ class SearchRunService:
                         f"Название: {result.get('title') or 'Не указано'}",
                         f"URL: {result.get('url')}",
                         f"Описание: {content}",
+                        (
+                            "Проверка первоисточника: "
+                            + (
+                                "успешно"
+                                if verification.get("verified")
+                                else "не пройдена"
+                            )
+                        ),
+                        (
+                            "Email на странице: "
+                            + ", ".join(verification.get("emails") or [])
+                        ),
+                        (
+                            "Соцсети на странице: "
+                            + ", ".join(
+                                verification.get("social_links") or []
+                            )
+                        ),
+                        (
+                            "Фрагмент страницы: "
+                            + str(verification.get("page_excerpt") or "")[:800]
+                        ),
                         (
                             "Найден по запросам: "
                             + ", ".join(

@@ -42,7 +42,11 @@ class ApiClient:
                 await oldest_session.close()
 
         timeout = aiohttp.ClientTimeout(total=SESSION_TIMEOUT_SECONDS)
-        session = aiohttp.ClientSession(timeout=timeout)
+        headers = {}
+        internal_api_key = os.getenv("INTERNAL_API_KEY", "").strip()
+        if internal_api_key:
+            headers["X-API-Key"] = internal_api_key
+        session = aiohttp.ClientSession(timeout=timeout, headers=headers)
         self._sessions[user_id] = session
         return session
 
@@ -178,16 +182,16 @@ class ApiClient:
 
         return data
 
-    async def send_contact_email(
+    async def update_contact_message(
         self,
         user_id: str,
         contact_id: int,
+        message: str,
     ) -> dict[str, Any]:
-        """Отправляет одобренное приглашение по email."""
         session = await self._get_session(user_id)
-        url = f"{API_BASE_URL}/contacts/{contact_id}/send"
+        url = f"{API_BASE_URL}/contacts/{contact_id}/message"
 
-        async with session.post(url, json={}) as response:
+        async with session.patch(url, json={"message": message}) as response:
             if response.status != 200:  # noqa: PLR2004
                 body = await response.text()
                 message = body
@@ -268,3 +272,4 @@ class ApiClient:
             if not session.closed:
                 await session.close()
         self._sessions.clear()
+import os

@@ -6,6 +6,7 @@ from sqlalchemy import (
     String,
     Text,
     Float,
+    Integer,
     DateTime,
     func,
 )
@@ -84,6 +85,18 @@ class Contact(Base):
 
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
     last_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    celery_task_id: Mapped[str | None] = mapped_column(
+        String(255),
+        index=True,
+    )
+    sending_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    delivery_attempts: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+    )
 
 
     communications: Mapped[list["Communication"]] = relationship(

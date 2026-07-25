@@ -1,7 +1,10 @@
 import asyncio
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 from playwright.async_api import async_playwright
+from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
 
 
 class VkService:
@@ -24,6 +27,18 @@ class VkService:
                 )
                 page = await context.new_page()
                 await page.goto(url, wait_until="domcontentloaded")
+                page_text = (await page.locator("body").inner_text()).lower()
+                if "captcha" in page.url.lower() or "введите код с картинки" in page_text:
+                    screenshot = str(
+                        Path("/tmp")
+                        / f"vk-captcha-{datetime.now(timezone.utc).timestamp():.0f}.png"
+                    )
+                    await page.screenshot(path=screenshot, full_page=True)
+                    raise VkCaptchaRequired(screenshot)
+                if "login" in page.url.lower() or "войти" in page_text[:1000]:
+                    raise VkSessionExpired(
+                        "VK-сессия истекла, обновите vk_auth.json"
+                    )
                 await page.get_by_text("Сообщение", exact=True).click()
                 await page.locator('[aria-label="Сообщение"]').fill(message)
                 await asyncio.sleep(1)

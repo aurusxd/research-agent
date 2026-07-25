@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
+from unittest.mock import patch as env_patch
 
 from services.mailing_service import (
     ContactAlreadySentError,
@@ -57,6 +58,19 @@ class ContactMailingServiceTest(IsolatedAsyncioTestCase):
 
         with self.assertRaises(ContactAlreadySentError):
             await self.service.send_approved_email(self.contact.id)
+
+    async def test_dry_run_does_not_call_delivery_channel(self) -> None:
+        with env_patch.dict(
+            "os.environ",
+            {"MAILING_DRY_RUN": "true"},
+        ):
+            communication, message_id = await self.service.send_approved(
+                self.contact.id
+            )
+
+        self.assertEqual(communication.id, 42)
+        self.assertEqual(message_id, "dry-run-42")
+        self.assertEqual(self.contact.status, ContactStatus.DRY_RUN.value)
 
     @patch(
         "services.mailing_service.send_yandex_email",
