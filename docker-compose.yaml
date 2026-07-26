@@ -153,6 +153,7 @@ services:
     volumes:
       - ./vk_auth.json:/app/vk_auth.json:ro
       - ./vk-profile:/app/vk-profile
+      - ./smoke-artifacts:/app/smoke-artifacts
     depends_on:
       db:
         condition: service_started

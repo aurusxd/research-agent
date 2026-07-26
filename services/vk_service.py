@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.async_api import Page, async_playwright
 
@@ -81,18 +82,44 @@ async def detect_blocking_state(page: Page) -> str | None:
     ):
         return "captcha"
 
-    password = page.locator('input[type="password"]')
-    login_form = page.locator(
-        'form[action*="login" i], input[name="email"], input[name="phone"]'
+    password_visible = await locator_is_visible(
+        page.locator('input[type="password"]')
     )
-    if (
-        "login" in url
-        or await locator_is_visible(password)
-        or await locator_is_visible(login_form)
-        or LOGIN_TEXT.search(body_text[:1500])
+    login_form_visible = await locator_is_visible(
+        page.locator(
+            'form[action*="login" i], '
+            'form:has(input[name="email"]):has(input[type="password"]), '
+            'form:has(input[name="phone"]):has(input[type="password"])'
+        )
+    )
+    if _looks_like_login_page(
+        url,
+        body_text,
+        password_visible=password_visible,
+        login_form_visible=login_form_visible,
     ):
         return "session_expired"
     return None
+
+
+def _looks_like_login_page(
+    url: str,
+    body_text: str,
+    *,
+    password_visible: bool,
+    login_form_visible: bool,
+) -> bool:
+    parsed = urlparse(url.lower())
+    login_url = (
+        parsed.hostname in {"id.vk.com", "login.vk.com"}
+        or parsed.path.rstrip("/") in {"/login", "/auth"}
+        or parsed.path.startswith("/login/")
+    )
+    if login_url or password_visible:
+        return True
+    # Text such as "Войти" can be present in VK navigation or a transient
+    # shell. It is only evidence when a real visible login form also exists.
+    return bool(login_form_visible and LOGIN_TEXT.search(body_text[:3000]))
 
 
 async def find_message_control(page: Page):
@@ -181,9 +208,34 @@ def _screenshot_path(directory: Path, label: str) -> Path:
 async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
     state = await detect_blocking_state(page)
     if state == "session_expired":
-        raise VkSessionExpired(
-            "VK-сессия истекла, обновите vk_auth.json"
-        )
+        await page.wait_for_timeout(2_000)
+        state = await detect_blocking_state(page)
+        if state == "session_expired":
+            suspected = _screenshot_path(
+                screenshot_dir,
+                "session-suspected",
+            )
+            await page.screenshot(path=str(suspected), full_page=True)
+            await page.reload(
+                wait_until="domcontentloaded",
+                timeout=30_000,
+            )
+            await page.wait_for_timeout(3_000)
+            state = await detect_blocking_state(page)
+            if state == "session_expired":
+                expired = _screenshot_path(
+                    screenshot_dir,
+                    "session-expired",
+                )
+                await page.screenshot(path=str(expired), full_page=True)
+                raise VkSessionExpired(
+                    "VK-сессия подтверждённо истекла после повторной "
+                    "проверки и перезагрузки. Обновите persistent-профиль "
+                    f"vk-profile (при необходимости заново создайте "
+                    f"vk_auth.json). Screenshot: {expired}"
+                )
+        if state is None:
+            return
     if state != "captcha":
         return
 
@@ -209,9 +261,8 @@ async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
         state = await detect_blocking_state(page)
 
         if state == "session_expired":
-            raise VkSessionExpired(
-                "VK-сессия истекла во время прохождения CAPTCHA"
-            )
+            await _raise_if_blocked(page, screenshot_dir)
+            return
         if state != "captcha":
             # Allow VK to finish redirects and restore the profile UI.
             await page.wait_for_timeout(1_000)
@@ -402,6 +453,17 @@ class VkService:
                     if context.pages
                     else await context.new_page()
                 )
-                return await send_message_on_page(page, url, message)
+                screenshot_dir = Path(
+                    os.getenv(
+                        "VK_SCREENSHOT_DIR",
+                        "/app/smoke-artifacts",
+                    )
+                )
+                return await send_message_on_page(
+                    page,
+                    url,
+                    message,
+                    screenshot_dir=screenshot_dir,
+                )
             finally:
                 await context.close()
