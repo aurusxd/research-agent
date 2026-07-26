@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import httpx
 from telethon import TelegramClient
 from telethon.errors import (
     FloodWaitError,
@@ -121,3 +122,24 @@ class TelegramService:
             ) from error
         finally:
             await client.disconnect()
+
+    @staticmethod
+    async def notify_chat(chat_id: str, text: str) -> None:
+        token = os.getenv("BOT_TOKEN", "").strip()
+        if not token or not chat_id.strip():
+            raise TelegramConfigurationError(
+                "Не заданы BOT_TOKEN или chat_id для уведомления"
+            )
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "disable_web_page_preview": True,
+                },
+            )
+        if response.is_error:
+            raise TelegramSendError(
+                f"Не удалось отправить отчёт о поиске: {response.text[:500]}"
+            )
