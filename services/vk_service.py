@@ -200,7 +200,7 @@ class VkService:
 
         async with async_playwright() as playwright:
             browser = await playwright.chromium.connect_over_cdp(endpoint_url)
-            browser.new_context(storage_state="vk_auth.json")
+            await browser.new_context(storage_state="vk_auth.json")
             try:
                 page = await browser.new_page()
                 client = await page.context.new_cdp_session(page)
