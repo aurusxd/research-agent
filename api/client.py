@@ -151,6 +151,33 @@ class ApiClient:
             raise ResponseValidationError
         return data
 
+    async def get_contact_communications(
+        self,
+        user_id: str,
+        contact_id: int,
+        *,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts/{contact_id}/communications"
+        async with session.get(url, params={"limit": limit}) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+
+        if not isinstance(data, list) or not all(
+            isinstance(item, dict) for item in data
+        ):
+            raise ResponseValidationError
+        return data
+
     async def review_contact(
         self,
         user_id: str,

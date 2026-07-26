@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 
@@ -42,3 +43,40 @@ def build_review_card(contact: dict[str, Any]) -> str:
         card = f"{card[:4050].rstrip()}\n\n[Текст сокращён]"
 
     return card
+
+
+def build_communication_history(
+    communications: list[dict[str, Any]],
+) -> str:
+    if not communications:
+        return "История коммуникаций пока пуста."
+
+    entries: list[str] = []
+    for item in communications:
+        direction = (
+            "← Входящее"
+            if item.get("direction") == "incoming"
+            else "→ Исходящее"
+        )
+        channel = str(item.get("channel") or "неизвестно")
+        status = str(item.get("status") or "—")
+        created_at = str(item.get("created_at") or "")
+        try:
+            timestamp = datetime.fromisoformat(
+                created_at.replace("Z", "+00:00")
+            ).strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            timestamp = created_at or "дата неизвестна"
+
+        message = str(item.get("message") or "").strip()
+        if len(message) > 700:
+            message = f"{message[:697].rstrip()}..."
+        entries.append(
+            f"{timestamp} · {channel} · {status}\n"
+            f"{direction}\n{message}"
+        )
+
+    text = "🕘 История коммуникаций\n\n" + "\n\n".join(entries)
+    if len(text) > 4096:
+        text = f"{text[:4050].rstrip()}\n\n[История сокращена]"
+    return text

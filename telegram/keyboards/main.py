@@ -19,6 +19,15 @@ def keyboard_build(
             ],
             [
                 InlineKeyboardButton(
+                    text="🕘 История коммуникаций",
+                    callback_data=ReviewCallback(
+                        action="history",
+                        contact_id=contact_id,
+                    ).pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     text="✅ Одобрить",
                     callback_data=ReviewCallback(
                         action="approve",

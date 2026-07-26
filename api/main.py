@@ -6,9 +6,11 @@ from pydantic import BaseModel
 
 from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
+from schemas.communication import CommunicationRead
 from schemas.search_run import SearchRunCreate, SearchRunRead
 from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
+from services.communication_service import CommunicationService
 from services.statistics_service import StatisticsPeriod, StatisticsService
 from services.mailing_queue_service import mailing_queue
 from services.delivery_channel_resolver import (
@@ -290,7 +292,17 @@ async def register_contact_response(
     contact = await ContactRepository(session).get_by_id(contact_id)
     if contact is None:
         raise HTTPException(status_code=404, detail="Контакт не найден")
-    contact.response = data.response.strip()
+    response_text = data.response.strip()
+    if not response_text:
+        raise HTTPException(status_code=422, detail="Ответ не может быть пустым")
+
+    await CommunicationService(session).register_incoming(
+        contact_id=contact_id,
+        channel=(contact.preferred_channel or "manual").strip(),
+        message=response_text,
+    )
+
+    contact.response = response_text
     contact.status = (
         ContactStatus.INTERESTED.value
         if data.interested
@@ -303,6 +315,35 @@ async def register_contact_response(
     )
     await session.commit()
     return {"success": True, "contact_id": contact_id, "status": contact.status}
+
+
+@app.get(
+    "/contacts/{contact_id}/communications",
+    response_model=list[CommunicationRead],
+)
+async def get_contact_communications(
+    contact_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    from utils.exceptions import ContactNotFoundError
+
+    try:
+        communications = await CommunicationService(
+            session
+        ).get_contact_history(
+            contact_id,
+            limit=max(1, min(limit, 100)),
+            offset=max(0, offset),
+        )
+    except ContactNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail="Контакт не найден",
+        ) from error
+
+    return list(reversed(communications))
 
 
 @app.get("/mailing/status")

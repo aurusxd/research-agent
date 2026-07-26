@@ -12,7 +12,7 @@ from services.logger import log
 from telegram.keyboards.callback_data import ReviewCallback
 from telegram.keyboards.main import keyboard_build
 from telegram.keyboards.menu import build_mailing_menu, build_statistics_menu
-from telegram.review import build_review_card
+from telegram.review import build_communication_history, build_review_card
 from telegram.statistics import build_statistics_text
 from utils.enums import ContactStatus
 
@@ -283,6 +283,28 @@ async def review_contact(
 
     user_id = str(callback.from_user.id)
     action = callback_data.action
+
+    if action == "history":
+        try:
+            communications = await api_client.get_contact_communications(
+                user_id,
+                callback_data.contact_id,
+                limit=10,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Ошибка получения истории коммуникаций")
+            await callback.answer(
+                "Не удалось получить историю",
+                show_alert=True,
+            )
+            return
+
+        await callback.answer()
+        if isinstance(callback.message, Message):
+            await callback.message.answer(
+                build_communication_history(communications)
+            )
+        return
 
     if action == "edit":
         await state.set_state(ReviewEditState.waiting_message)

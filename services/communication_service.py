@@ -15,6 +15,7 @@ from utils.exceptions import (
     CommunicationNotFoundError,
     ContactNotFoundError,
 )
+from utils.enums import ContactStatus
 
 
 class CommunicationService:
@@ -61,11 +62,14 @@ class CommunicationService:
             contact.last_contact_at = now
 
             if data.direction == "outgoing":
-                contact.status = "contacted"
+                contact.status = ContactStatus.SENT.value
                 contact.preferred_channel = data.channel
             else:
-                contact.status = "responded"
+                contact.status = ContactStatus.REPLIED.value
                 contact.response = data.message
+                contact.next_action = (
+                    "Оценить ответ и определить следующее действие"
+                )
 
             await self.session.flush()
             await self.session.commit()
