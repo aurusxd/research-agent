@@ -10,6 +10,7 @@ from utils.exceptions import (
     ContactNotFoundError,
 )
 from database.session import provider
+from services.contact_channels import require_usable_contact_channel
 
 
 class ContactService:
@@ -43,6 +44,7 @@ class ContactService:
         return contact
 
     async def create(self, data: ContactCreate) -> Contact:
+        require_usable_contact_channel(data)
         duplicate = await self.repository.find_duplicate(
             email=str(data.email) if data.email else None,
             website=data.website,
@@ -91,6 +93,22 @@ class ContactService:
 
         if not update_data:
             return contact
+
+        merged_data = {
+            field: getattr(contact, field, None)
+            for field in (
+                "email",
+                "contact_form_url",
+                "vk_url",
+                "telegram_url",
+                "ok_url",
+                "recipient_address",
+                "recipient_external_id",
+                "preferred_channel",
+            )
+        }
+        merged_data.update(update_data)
+        require_usable_contact_channel(merged_data)
 
         try:
             contact = await self.repository.update(

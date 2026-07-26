@@ -168,10 +168,10 @@ async def save_contact(
             "contact_id": contact.id,
             "message": "Организация сохранена",
         }
-    except Exception:
+    except Exception as error:
         log.exception("Ошибка сохранения")
         return {
             "success": False,
             "status": "error",
-            "message": "Ошибка сохранения",
+            "message": str(error) or "Ошибка сохранения",
         }

@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from services.contact_channels import require_usable_contact_channel
 
 
 class SaveContactToolArgs(BaseModel):
@@ -127,6 +129,11 @@ class SaveContactToolArgs(BaseModel):
             "платформы; null, если ID достоверно не определён"
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_contact_channel(self) -> "SaveContactToolArgs":
+        require_usable_contact_channel(self)
+        return self
 
 class SaveContactToolResult(BaseModel):
     success: bool
