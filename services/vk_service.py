@@ -42,9 +42,9 @@ class VkService:
                         "VK-сессия истекла, обновите vk_auth.json"
                     )
 
-                page.locator('button:has-text("Подписаться")').click()
+                await page.locator('button:has-text("Подписаться")').click()
                 await asyncio.sleep(2)
-                open_dialog = page.locator(
+                open_dialog = await page.locator(
                     'a[href^="/write"], '
                     'a[href*="/write"], '
                     'a:has-text("Сообщение"), '
@@ -63,7 +63,7 @@ class VkService:
                         "возможно, сообщения закрыты или изменилась разметка"
                     ) from error
 
-                editor = page.locator(
+                editor = await  page.locator(
                     '[contenteditable="true"][role="textbox"], '
                     '[contenteditable="true"], '
                     'textarea'
@@ -71,7 +71,7 @@ class VkService:
                 await editor.wait_for(state="visible", timeout=15_000)
                 await editor.fill(message)
                 await asyncio.sleep(1)
-                send_button = page.locator(
+                send_button = await page.locator(
                     '[aria-label="Отправить сообщение"], '
                     'button:has-text("Отправить")'
                 ).first
