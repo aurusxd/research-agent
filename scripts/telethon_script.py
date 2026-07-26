@@ -1,14 +1,16 @@
 import asyncio
 import os
 
+from dotenv import load_dotenv
 from telethon import TelegramClient
 
+load_dotenv()
 
 async def main() -> None:
     client = TelegramClient(
         os.getenv(
             "TELEGRAM_USER_SESSION",
-            "/app/telegram-session/outreach",
+            "./telegram-session/outreach",
         ),
         int(os.environ["TELEGRAM_API_ID"]),
         os.environ["TELEGRAM_API_HASH"],
