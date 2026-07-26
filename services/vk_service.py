@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-
+from services.logger import log
 from playwright.async_api import Page, async_playwright
 
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
@@ -116,18 +116,20 @@ def _screenshot_path(directory: Path, label: str) -> Path:
     return directory / f"vk-{label}-{stamp}.png"
 
 
-async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
+async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> True:
     state = await detect_blocking_state(page)
     if state == "captcha":
         screenshot = _screenshot_path(screenshot_dir, "captcha")
         await page.get_by_text("Продолжить").click()
         await asyncio.sleep(2)
         await page.screenshot(path=str(screenshot), full_page=True)
-        raise VkCaptchaRequired(str(screenshot))
+        log.error("Captcha required, screenshot: ", str(screenshot))
+        return True
     if state == "session_expired":
         raise VkSessionExpired(
             "VK-сессия истекла, обновите vk_auth.json"
         )
+    return True
 
 
 async def prepare_profile_page(
