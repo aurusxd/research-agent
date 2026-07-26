@@ -29,18 +29,31 @@ class ContactChannelValidationTest(TestCase):
             )
 
     def test_accepts_each_supported_direct_channel(self) -> None:
-        for field, value in {
-            "email": "museum@example.org",
-            "contact_form_url": "https://example.org/contact",
-            "vk_url": "https://vk.com/museum",
-            "telegram_url": "https://t.me/museum",
-            "ok_url": "https://ok.ru/group/example",
-        }.items():
+        for channel, field, value in [
+            ("email", "email", "museum@example.org"),
+            (
+                "contact_form",
+                "contact_form_url",
+                "https://example.org/contact",
+            ),
+            ("vk", "vk_url", "https://vk.com/museum"),
+            ("telegram", "telegram_url", "https://t.me/museum"),
+            ("ok", "ok_url", "https://ok.ru/group/example"),
+        ]:
             with self.subTest(field=field):
                 item = SaveContactToolArgs(
-                    **_tool_args(**{field: value})
+                    **_tool_args(
+                        preferred_channel=channel,
+                        **{field: value},
+                    )
                 )
                 self.assertTrue(has_usable_contact_channel(item))
+
+    def test_rejects_existing_channel_when_not_selected(self) -> None:
+        with self.assertRaises(ValidationError):
+            SaveContactToolArgs(
+                **_tool_args(vk_url="https://vk.com/museum")
+            )
 
     def test_recipient_address_requires_supported_channel(self) -> None:
         with self.assertRaises(ValidationError):
