@@ -14,6 +14,7 @@ from database.models.communication import Communication
 from database.models.contact import Contact
 from services.logger import log
 from services.mailing_service import ContactMailingError, ContactMailingService
+from services.delivery_channel_resolver import resolve_fallback_channel
 from services.search_run_service import SearchRunService
 from services.telegram_service import TelegramService
 from utils.enums import ContactStatus
@@ -145,26 +146,46 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                 ).send_approved(contact_id)
             except ContactMailingError as error:
                 contact = await session.get(Contact, contact_id)
+                retryable = is_temporary_error(error)
                 if (
                     contact
-                    and contact.preferred_channel == "contact_form"
-                    and contact.email
+                    and not retryable
                     and contact.status != ContactStatus.REQUIRES_HUMAN.value
                 ):
-                    contact.preferred_channel = "email"
-                    contact.recipient_address = contact.email
-                    contact.status = ContactStatus.QUEUED.value
-                    contact.next_action = (
-                        "Форма не отправилась; автоматический fallback на email"
+                    failed_channels = set(
+                        (
+                            await session.scalars(
+                                select(Communication.channel).where(
+                                    Communication.contact_id == contact_id,
+                                    Communication.direction == "outgoing",
+                                    Communication.status == "failed",
+                                )
+                            )
+                        ).all()
                     )
-                    await session.commit()
-                    return {
-                        "contact_id": contact_id,
-                        "status": "fallback",
-                        "fallback_channel": "email",
-                        "error": str(error),
-                    }
-                retryable = is_temporary_error(error)
+                    fallback = resolve_fallback_channel(
+                        contact,
+                        failed_channels,
+                    )
+                    if fallback:
+                        failed_channel = contact.preferred_channel or "unknown"
+                        fallback_channel, recipient = fallback
+                        contact.preferred_channel = fallback_channel
+                        contact.recipient_address = recipient
+                        contact.status = ContactStatus.QUEUED.value
+                        contact.sending_started_at = None
+                        contact.next_action = (
+                            f"Канал {failed_channel} недоступен; "
+                            f"автоматический fallback на {fallback_channel}"
+                        )
+                        await session.commit()
+                        return {
+                            "contact_id": contact_id,
+                            "status": "fallback",
+                            "fallback_channel": fallback_channel,
+                            "failed_channel": failed_channel,
+                            "error": str(error),
+                        }
                 if contact and contact.status in {
                     ContactStatus.SENDING.value,
                     ContactStatus.FAILED.value,

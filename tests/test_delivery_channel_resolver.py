@@ -4,6 +4,7 @@ from unittest import TestCase
 from services.delivery_channel_resolver import (
     DeliveryChannelResolutionError,
     resolve_delivery_channel,
+    resolve_fallback_channel,
 )
 
 
@@ -14,6 +15,7 @@ def contact(**overrides):
         "recipient_address": None,
         "contact_form_url": None,
         "vk_url": None,
+        "telegram_url": None,
         "recipient_external_id": None,
         "ok_url": None,
     }
@@ -40,3 +42,42 @@ class DeliveryChannelResolverTest(TestCase):
         item = contact(preferred_channel=None)
         with self.assertRaises(DeliveryChannelResolutionError):
             resolve_delivery_channel(item)
+
+    def test_falls_back_from_vk_to_highest_priority_available_channel(
+        self,
+    ) -> None:
+        item = contact(
+            preferred_channel="vk",
+            email="museum@example.org",
+            telegram_url="https://t.me/museum",
+        )
+
+        self.assertEqual(
+            resolve_fallback_channel(item, {"vk"}),
+            ("email", "museum@example.org"),
+        )
+
+    def test_fallback_skips_channels_that_already_failed(self) -> None:
+        item = contact(
+            preferred_channel="vk",
+            email="museum@example.org",
+            contact_form_url="https://example.org/contact",
+            telegram_url="https://t.me/museum",
+        )
+
+        self.assertEqual(
+            resolve_fallback_channel(
+                item,
+                {"email", "contact_form", "vk"},
+            ),
+            ("telegram", "https://t.me/museum"),
+        )
+
+    def test_fallback_returns_none_when_no_other_channel_exists(self) -> None:
+        item = contact(
+            preferred_channel="vk",
+            email=None,
+            vk_url="https://vk.com/museum",
+        )
+
+        self.assertIsNone(resolve_fallback_channel(item, {"vk"}))

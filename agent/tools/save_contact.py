@@ -98,6 +98,9 @@ async def save_contact(
                 email = None
                 if (preferred_channel or "").strip().lower() == "email":
                     preferred_channel = None
+        normalized_channel = (preferred_channel or "").strip().lower()
+        if normalized_channel == "telegram" and not recipient_address:
+            recipient_address = telegram_url or recipient_external_id
         generated_message = ensure_invitation(
             generated_message,
             organization_name=organization_name,

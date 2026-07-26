@@ -1,18 +1,29 @@
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from telethon import TelegramClient
 from telethon.errors import (
+    ChannelPrivateError,
+    ChatWriteForbiddenError,
     FloodWaitError,
+    InviteHashExpiredError,
+    InviteHashInvalidError,
     PeerFloodError,
-    SessionPasswordNeededError,
+    UserAlreadyParticipantError,
+    UserPrivacyRestrictedError,
     UsernameInvalidError,
     UsernameNotOccupiedError,
-    UserPrivacyRestrictedError,
 )
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import (
+    CheckChatInviteRequest,
+    ImportChatInviteRequest,
+)
+from telethon.tl.types import User
 
 
 class TelegramConfigurationError(RuntimeError):
@@ -31,23 +42,50 @@ class TelegramSendError(RuntimeError):
     pass
 
 
-def extract_username(recipient: str) -> str:
+@dataclass(frozen=True)
+class TelegramTarget:
+    kind: Literal["public", "invite"]
+    value: str
+
+
+def parse_telegram_target(recipient: str) -> TelegramTarget:
     value = recipient.strip()
 
-    match = re.fullmatch(
-        r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/@?([A-Za-z0-9_]{5,32})/?",
+    invite_match = re.fullmatch(
+        r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/"
+        r"(?:joinchat/|\+)([A-Za-z0-9_-]+)/*",
         value,
         re.IGNORECASE,
     )
-    if match:
-        return match.group(1)
+    if invite_match:
+        return TelegramTarget("invite", invite_match.group(1))
+
+    public_match = re.fullmatch(
+        r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/"
+        r"@?([A-Za-z0-9_]{5,32})/*",
+        value,
+        re.IGNORECASE,
+    )
+    if public_match:
+        return TelegramTarget("public", public_match.group(1))
 
     if re.fullmatch(r"@[A-Za-z0-9_]{5,32}", value):
-        return value[1:]
+        return TelegramTarget("public", value[1:])
 
     raise TelegramConfigurationError(
-        "Для Telegram требуется публичный @username или ссылка https://t.me/username"
+        "Для Telegram требуется @username, ссылка https://t.me/username "
+        "или приватный инвайт https://t.me/+hash"
     )
+
+
+def extract_username(recipient: str) -> str:
+    """Backward-compatible helper for callers that only accept public peers."""
+    target = parse_telegram_target(recipient)
+    if target.kind != "public":
+        raise TelegramConfigurationError(
+            "Приватная invite-ссылка не содержит публичный username"
+        )
+    return target.value
 
 
 def build_client() -> TelegramClient:
@@ -64,12 +102,38 @@ def build_client() -> TelegramClient:
         )
 
     Path(session).parent.mkdir(parents=True, exist_ok=True)
+    return TelegramClient(session, int(api_id), api_hash)
 
-    return TelegramClient(
-        session,
-        int(api_id),
-        api_hash,
-    )
+
+async def _resolve_target(client: TelegramClient, target: TelegramTarget):
+    if target.kind == "invite":
+        try:
+            updates = await client(ImportChatInviteRequest(target.value))
+            if not updates.chats:
+                raise TelegramSendError(
+                    "Telegram принял инвайт, но не вернул группу"
+                )
+            return updates.chats[0], True
+        except UserAlreadyParticipantError:
+            invite = await client(CheckChatInviteRequest(target.value))
+            chat = getattr(invite, "chat", None)
+            if chat is None:
+                raise TelegramSendError(
+                    "Аккаунт уже состоит в группе, но Telegram не вернул чат"
+                )
+            return chat, False
+
+    entity = await client.get_entity(target.value)
+    if isinstance(entity, User):
+        return entity, False
+
+    joined = False
+    try:
+        await client(JoinChannelRequest(entity))
+        joined = True
+    except UserAlreadyParticipantError:
+        pass
+    return entity, joined
 
 
 class TelegramService:
@@ -81,7 +145,7 @@ class TelegramService:
         text: str,
     ) -> dict[str, Any]:
         recipient = recipient_address or recipient_external_id
-        username = extract_username(recipient)
+        target = parse_telegram_target(recipient)
         client = build_client()
 
         await client.connect()
@@ -91,21 +155,23 @@ class TelegramService:
                     "Пользовательская Telegram-сессия не авторизована"
                 )
 
-            entity = await client.get_entity(username)
+            entity, joined = await _resolve_target(client, target)
             message = await client.send_message(
                 entity,
                 text,
                 link_preview=False,
             )
-
             return {
                 "success": True,
                 "message_id": str(message.id),
+                "joined": joined,
+                "target_type": (
+                    "user" if isinstance(entity, User) else "chat_group"
+                ),
             }
-
         except FloodWaitError as error:
             raise TelegramRequiresHuman(
-                f"Telegram установил ограничение: повтор возможен через "
+                "Telegram установил ограничение: повтор возможен через "
                 f"{error.seconds} секунд"
             ) from error
         except PeerFloodError as error:
@@ -116,9 +182,22 @@ class TelegramService:
             raise TelegramSendError(
                 "Настройки приватности получателя запрещают сообщение"
             ) from error
+        except ChatWriteForbiddenError as error:
+            raise TelegramSendError(
+                "Аккаунт вступил в Telegram-группу, но публикация сообщений "
+                "в ней запрещена"
+            ) from error
+        except ChannelPrivateError as error:
+            raise TelegramSendError(
+                "Telegram-канал или группа недоступны для аккаунта"
+            ) from error
+        except (InviteHashInvalidError, InviteHashExpiredError) as error:
+            raise TelegramSendError(
+                "Приватная Telegram invite-ссылка недействительна или истекла"
+            ) from error
         except (UsernameInvalidError, UsernameNotOccupiedError) as error:
             raise TelegramSendError(
-                f"Публичный Telegram username @{username} не найден"
+                f"Публичный Telegram username @{target.value} не найден"
             ) from error
         finally:
             await client.disconnect()
@@ -141,8 +220,10 @@ class TelegramService:
             )
         if response.is_error:
             raise TelegramSendError(
-                f"Не удалось отправить отчёт о поиске: {response.text[:500]}"
+                "Не удалось отправить отчёт о поиске: "
+                f"{response.text[:500]}"
             )
+
     @staticmethod
     async def notify_operator(text: str) -> None:
         chat_id = os.getenv("OPERATOR_TELEGRAM_CHAT_ID", "").strip()
@@ -150,7 +231,4 @@ class TelegramService:
             raise TelegramConfigurationError(
                 "Не задан OPERATOR_TELEGRAM_CHAT_ID для уведомления"
             )
-        await TelegramService.notify_chat(
-            chat_id,
-            text,
-        )
+        await TelegramService.notify_chat(chat_id, text)
