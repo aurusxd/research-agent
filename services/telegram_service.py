@@ -143,3 +143,14 @@ class TelegramService:
             raise TelegramSendError(
                 f"Не удалось отправить отчёт о поиске: {response.text[:500]}"
             )
+    @staticmethod
+    async def notify_operator(text: str) -> None:
+        chat_id = os.getenv("OPERATOR_TELEGRAM_CHAT_ID", "").strip()
+        if not chat_id:
+            raise TelegramConfigurationError(
+                "Не задан OPERATOR_TELEGRAM_CHAT_ID для уведомления"
+            )
+        await TelegramService.notify_chat(
+            chat_id,
+            text,
+        )
