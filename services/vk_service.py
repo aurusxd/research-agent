@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -32,6 +33,35 @@ async def locator_is_visible(locator) -> bool:
         return await locator.first.is_visible()
     except Exception:
         return False
+
+
+async def _seed_persistent_profile(
+    context,
+    storage_state_path: Path,
+) -> None:
+    """Import a legacy Playwright storage state into a new persistent profile."""
+    if not storage_state_path.is_file():
+        return
+
+    state = json.loads(storage_state_path.read_text(encoding="utf-8"))
+    cookies = state.get("cookies") or []
+    if cookies:
+        await context.add_cookies(cookies)
+
+    origins = state.get("origins") or []
+    if origins:
+        init_script = """
+        (states) => {
+            const state = states.find(item => item.origin === location.origin);
+            if (!state) return;
+            for (const item of state.localStorage || []) {
+                localStorage.setItem(item.name, item.value);
+            }
+        }
+        """
+        await context.add_init_script(
+            script=f"({init_script})({json.dumps(origins, ensure_ascii=False)})"
+        )
 
 
 async def detect_blocking_state(page: Page) -> str | None:
@@ -90,6 +120,8 @@ async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
     state = await detect_blocking_state(page)
     if state == "captcha":
         screenshot = _screenshot_path(screenshot_dir, "captcha")
+        await page.get_by_text("Продолжить").click()
+        await asyncio.sleep(2)
         await page.screenshot(path=str(screenshot), full_page=True)
         raise VkCaptchaRequired(str(screenshot))
     if state == "session_expired":
@@ -118,8 +150,6 @@ async def prepare_profile_page(
     message_control = await find_message_control(page)
     if message_control is None:
         screenshot = _screenshot_path(screenshot_dir, "message-control-missing")
-        await page.get_by_text("Продолжить").click()
-        await asyncio.sleep(2)
         await page.screenshot(path=str(screenshot), full_page=True)
         raise RuntimeError(
             "VK не предоставил кнопку отправки сообщения; возможно, сообщения "
@@ -196,14 +226,38 @@ class VkService:
             headless = (
                 os.getenv("VK_PLAYWRIGHT_HEADLESS", "true").lower() != "false"
             )
-            storage_state = os.getenv(
-                "VK_PLAYWRIGHT_STORAGE_STATE",
-                "vk_auth.json",
+            profile_path = Path(
+                os.getenv(
+                    "VK_PLAYWRIGHT_PROFILE",
+                    "/app/vk-profile",
+                )
             )
-            browser = await playwright.chromium.launch(headless=headless)
+            storage_state_path = Path(
+                os.getenv(
+                    "VK_PLAYWRIGHT_STORAGE_STATE",
+                    "vk_auth.json",
+                )
+            )
+            profile_path.mkdir(parents=True, exist_ok=True)
+            initialized_marker = profile_path / ".initialized"
+
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_path),
+                headless=headless,
+            )
             try:
-                context = await browser.new_context(storage_state=storage_state)
-                page = await context.new_page()
+                if not initialized_marker.exists():
+                    await _seed_persistent_profile(
+                        context,
+                        storage_state_path,
+                    )
+                    initialized_marker.touch()
+
+                page = (
+                    context.pages[0]
+                    if context.pages
+                    else await context.new_page()
+                )
                 return await send_message_on_page(page, url, message)
             finally:
-                await browser.close()
+                await context.close()
