@@ -93,7 +93,9 @@ async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
         await page.screenshot(path=str(screenshot), full_page=True)
         raise VkCaptchaRequired(str(screenshot))
     if state == "session_expired":
-        raise VkSessionExpired("VK-сессия истекла, обновите vk_auth.json")
+        raise VkSessionExpired(
+            "VK-сессия истекла, обновите vk_auth.json"
+        )
 
 
 async def prepare_profile_page(
@@ -117,7 +119,7 @@ async def prepare_profile_page(
     if message_control is None:
         screenshot = _screenshot_path(screenshot_dir, "message-control-missing")
         await page.get_by_text("Продолжить").click()
-        await asyncio.sleep(4)
+        await asyncio.sleep(2)
         await page.screenshot(path=str(screenshot), full_page=True)
         raise RuntimeError(
             "VK не предоставил кнопку отправки сообщения; возможно, сообщения "
@@ -171,6 +173,7 @@ async def send_message_on_page(
             else await editor.inner_text()
         ).strip()
     except Exception:
+        # VK may replace or remove the editor after a successful send.
         remaining = ""
 
     if remaining:
@@ -189,27 +192,18 @@ class VkService:
         url: str,
         message: str,
     ) -> dict[str, str | bool]:
-        auth = os.getenv("AUTH")
-        if not auth:
-            raise Exception(
-                "Укажите Bright Data Browser API credentials в переменной AUTH "
-                "в формате USERNAME:PASSWORD."
-            )
-
-        endpoint_url = f"wss://{auth}@brd.superproxy.io:9222"
-
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.connect_over_cdp(endpoint_url)
-            await browser.new_context(storage_state="vk_auth.json")
+            headless = (
+                os.getenv("VK_PLAYWRIGHT_HEADLESS", "true").lower() != "false"
+            )
+            storage_state = os.getenv(
+                "VK_PLAYWRIGHT_STORAGE_STATE",
+                "vk_auth.json",
+            )
+            browser = await playwright.chromium.launch(headless=headless)
             try:
-                page = await browser.new_page()
-                client = await page.context.new_cdp_session(page)
-
-                # Автосолвер капчи включен по умолчанию.
-                # Если нужно явно управлять им, можно раскомментировать:
-                # await client.send("Captcha.setAutoSolve", {"autoSolve": True})
-
-                result = await send_message_on_page(page, url, message)
-                return result
+                context = await browser.new_context(storage_state=storage_state)
+                page = await context.new_page()
+                return await send_message_on_page(page, url, message)
             finally:
                 await browser.close()
