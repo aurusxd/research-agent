@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from services.logger import log
+
 from playwright.async_api import Page, async_playwright
 
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
@@ -116,20 +116,51 @@ def _screenshot_path(directory: Path, label: str) -> Path:
     return directory / f"vk-{label}-{stamp}.png"
 
 
-async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> True:
+async def _raise_if_blocked(page: Page, screenshot_dir: Path) -> None:
     state = await detect_blocking_state(page)
-    if state == "captcha":
-        screenshot = _screenshot_path(screenshot_dir, "captcha")
-        await page.get_by_text("Продолжить").click()
-        await asyncio.sleep(2)
-        await page.screenshot(path=str(screenshot), full_page=True)
-        log.error("Captcha required, screenshot: ", str(screenshot))
-        return True
     if state == "session_expired":
         raise VkSessionExpired(
             "VK-сессия истекла, обновите vk_auth.json"
         )
-    return True
+    if state != "captcha":
+        return
+
+    screenshot = _screenshot_path(screenshot_dir, "captcha-detected")
+    await page.screenshot(path=str(screenshot), full_page=True)
+
+    continue_button = page.get_by_text("Продолжить", exact=True)
+    if await locator_is_visible(continue_button):
+        await continue_button.first.click(timeout=10_000)
+        await page.wait_for_timeout(2_000)
+
+    wait_seconds = max(
+        0,
+        min(
+            600,
+            int(os.getenv("VK_CAPTCHA_WAIT_SECONDS", "180")),
+        ),
+    )
+    deadline = asyncio.get_running_loop().time() + wait_seconds
+
+    while asyncio.get_running_loop().time() < deadline:
+        await page.wait_for_timeout(2_000)
+        state = await detect_blocking_state(page)
+
+        if state == "session_expired":
+            raise VkSessionExpired(
+                "VK-сессия истекла во время прохождения CAPTCHA"
+            )
+        if state != "captcha":
+            # Allow VK to finish redirects and restore the profile UI.
+            await page.wait_for_timeout(1_000)
+            return
+
+    timeout_screenshot = _screenshot_path(
+        screenshot_dir,
+        "captcha-timeout",
+    )
+    await page.screenshot(path=str(timeout_screenshot), full_page=True)
+    raise VkCaptchaRequired(str(timeout_screenshot))
 
 
 async def prepare_profile_page(
