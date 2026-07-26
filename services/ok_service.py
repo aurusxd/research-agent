@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.async_api import Page, async_playwright
 
 from services.delivery_errors import VkCaptchaRequired, VkSessionExpired
+from services.vk_service import SUBSCRIBE_TEXT
 
 
 CAPTCHA_TEXT = re.compile(
@@ -119,8 +120,16 @@ async def send_message_on_page(
     url: str,
     message: str,
     *,
+    subscribe_if_available: bool = True,
     screenshot_dir: Path = Path("/tmp"),
 ) -> dict[str, str | bool]:
+
+    subscribe = page.get_by_role("button", name=SUBSCRIBE_TEXT)
+    if subscribe_if_available and await locator_is_visible(subscribe):
+        await subscribe.first.click(timeout=10_000)
+        await page.wait_for_timeout(2_000)
+        await _raise_if_blocked(page, screenshot_dir)
+    
     write_control = await prepare_profile_page(
         page,
         url,
@@ -128,6 +137,8 @@ async def send_message_on_page(
     )
     await write_control.click(timeout=15_000)
     await _raise_if_blocked(page, screenshot_dir)
+
+
 
     editor = page.locator(
         'msg-message-editor[placeholder*="Напишите сообщение"], '

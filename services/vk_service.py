@@ -214,6 +214,8 @@ async def send_message_on_page(
         '[contenteditable="true"], textarea'
     ).last
     await editor.wait_for(state="visible", timeout=15_000)
+    matching_messages = page.get_by_text(message, exact=True)
+    matching_count_before = await matching_messages.count()
     await editor.fill(message)
 
     send_button = page.get_by_role(
@@ -225,25 +227,57 @@ async def send_message_on_page(
     else:
         await editor.press("Enter")
 
-    try:
-        await editor.wait_for(state="visible", timeout=3_000)
-        tag_name = await editor.evaluate(
-            "(element) => element.tagName.toLowerCase()"
-        )
-        remaining = (
-            await editor.input_value()
-            if tag_name in {"input", "textarea"}
-            else await editor.inner_text()
-        ).strip()
-    except Exception:
-        # VK may replace or remove the editor after a successful send.
-        remaining = ""
+    await _raise_if_blocked(page, screenshot_dir)
 
-    if remaining:
-        screenshot = _screenshot_path(screenshot_dir, "send-not-confirmed")
+    confirmation_deadline = asyncio.get_running_loop().time() + 15
+    send_confirmed = False
+    while asyncio.get_running_loop().time() < confirmation_deadline:
+        editor_empty = False
+        try:
+            if await editor.count() == 0:
+                editor_empty = True
+            else:
+                tag_name = await editor.evaluate(
+                    "(element) => element.tagName.toLowerCase()"
+                )
+                editor_value = (
+                    await editor.input_value()
+                    if tag_name in {"input", "textarea"}
+                    else await editor.inner_text()
+                )
+                editor_empty = not editor_value.strip()
+        except Exception:
+            # A replaced editor is acceptable only if the sent message is also
+            # visible in the conversation history.
+            editor_empty = True
+
+        matching_count_after = await matching_messages.count()
+        new_message_visible = False
+        for index in range(
+            matching_count_before,
+            matching_count_after,
+        ):
+            try:
+                if await matching_messages.nth(index).is_visible():
+                    new_message_visible = True
+                    break
+            except Exception:
+                continue
+
+        if editor_empty and new_message_visible:
+            send_confirmed = True
+            break
+        await page.wait_for_timeout(500)
+
+    if not send_confirmed:
+        screenshot = _screenshot_path(
+            screenshot_dir,
+            "send-not-confirmed",
+        )
         await page.screenshot(path=str(screenshot), full_page=True)
         raise RuntimeError(
-            "VK не подтвердил отправку: редактор сообщения не очистился. "
+            "VK не подтвердил отправку: редактор не очистился или новое "
+            "исходящее сообщение не появилось в истории диалога. "
             f"Screenshot: {screenshot}"
         )
     return {"success": True, "message_id": ""}
