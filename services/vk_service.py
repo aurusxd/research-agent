@@ -42,6 +42,12 @@ class VkService:
                         "VK-сессия истекла, обновите vk_auth.json"
                     )
 
+
+                screenshot = str(
+                    Path("/tmp")
+                    / f"vk-captcha-{datetime.now(timezone.utc).timestamp():.0f}.png"
+                )
+                await page.screenshot(path=screenshot, full_page=True)
                 await page.locator('button:has-text("Подписаться")').click()
                 await asyncio.sleep(2)
                 open_dialog = await page.locator(
