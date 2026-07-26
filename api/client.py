@@ -178,6 +178,32 @@ class ApiClient:
             raise ResponseValidationError
         return data
 
+    async def get_recent_communications(
+        self,
+        user_id: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/communications"
+        async with session.get(url, params={"limit": limit}) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+
+        if not isinstance(data, list) or not all(
+            isinstance(item, dict) for item in data
+        ):
+            raise ResponseValidationError
+        return data
+
     async def review_contact(
         self,
         user_id: str,
@@ -207,6 +233,28 @@ class ApiClient:
         if not isinstance(data, dict) or data.get("success") is not True:
             raise InvalidReviewResponseError
 
+        return data
+
+    async def approve_all_contacts(
+        self,
+        user_id: str,
+    ) -> dict[str, Any]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/contacts/approve-all"
+        async with session.post(url) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+
+        if not isinstance(data, dict) or data.get("success") is not True:
+            raise InvalidReviewResponseError
         return data
 
     async def update_contact_message(
@@ -275,6 +323,71 @@ class ApiClient:
             data.get("state"),
             str,
         ):
+            raise ResponseValidationError
+        return data
+
+    async def schedule_mailing(
+        self,
+        user_id: str,
+        scheduled_at: str,
+    ) -> dict[str, Any]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/mailing/schedule"
+        async with session.post(
+            url,
+            json={"scheduled_at": scheduled_at},
+        ) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+        if not isinstance(data, dict):
+            raise ResponseValidationError
+        return data
+
+    async def get_settings(self, user_id: str) -> dict[str, Any]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/settings"
+        async with session.get(url) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+        if not isinstance(data, dict):
+            raise ResponseValidationError
+        return data
+
+    async def update_settings(
+        self,
+        user_id: str,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        session = await self._get_session(user_id)
+        url = f"{API_BASE_URL}/settings"
+        async with session.patch(url, json=values) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=body,
+                    headers=response.headers,
+                )
+            data = await response.json()
+        if not isinstance(data, dict):
             raise ResponseValidationError
         return data
 

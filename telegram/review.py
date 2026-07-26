@@ -53,6 +53,7 @@ def build_communication_history(
 
     entries: list[str] = []
     for item in communications:
+        organization = str(item.get("organization_name") or "").strip()
         direction = (
             "← Входящее"
             if item.get("direction") == "incoming"
@@ -71,8 +72,13 @@ def build_communication_history(
         message = str(item.get("message") or "").strip()
         if len(message) > 700:
             message = f"{message[:697].rstrip()}..."
+        heading = (
+            f"{organization}\n"
+            if organization
+            else ""
+        )
         entries.append(
-            f"{timestamp} · {channel} · {status}\n"
+            f"{heading}{timestamp} · {channel} · {status}\n"
             f"{direction}\n{message}"
         )
 

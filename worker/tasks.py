@@ -106,6 +106,13 @@ def execute_search_run(
     return asyncio.run(_execute_search(search_run_id, notification_chat_id))
 
 
+@celery_app.task(name="worker.tasks.start_scheduled_mailing")
+def start_scheduled_mailing():
+    from services.mailing_queue_service import mailing_queue
+
+    return asyncio.run(mailing_queue.start())
+
+
 async def _send(contact_id: int) -> dict[str, str | int]:
     engine = create_async_engine(
         config.database.database_url,
@@ -245,10 +252,20 @@ async def _send(contact_id: int) -> dict[str, str | int]:
 
 
 async def _delivery_block_reason(contact_id: int) -> str | None:
-    timezone_name = os.getenv("MAILING_TIMEZONE", "Asia/Novosibirsk")
+    redis = _redis()
+    timezone_name = (
+        redis.get("settings:timezone")
+        or os.getenv("MAILING_TIMEZONE", "Asia/Novosibirsk")
+    )
     local_now = datetime.now(ZoneInfo(timezone_name))
-    start_hour = int(os.getenv("MAILING_WORK_START_HOUR", "9"))
-    end_hour = int(os.getenv("MAILING_WORK_END_HOUR", "19"))
+    start_hour = int(
+        redis.get("settings:work_start_hour")
+        or os.getenv("MAILING_WORK_START_HOUR", "9")
+    )
+    end_hour = int(
+        redis.get("settings:work_end_hour")
+        or os.getenv("MAILING_WORK_END_HOUR", "19")
+    )
     if not start_hour <= local_now.hour < end_hour:
         return "outside_working_hours"
     day_start = datetime.combine(
@@ -277,7 +294,9 @@ async def _delivery_block_reason(contact_id: int) -> str | None:
                 )
             )
             limit = int(
-                os.getenv(
+                redis.get(f"settings:{channel}_daily_limit")
+                or redis.get("settings:daily_limit")
+                or os.getenv(
                     f"{channel.upper()}_DAILY_LIMIT",
                     os.getenv("MAILING_DAILY_LIMIT", "50"),
                 )
@@ -345,6 +364,19 @@ def send_approved_contact(self, contact_id: int):
         return {"contact_id": contact_id, "status": "stopped"}
     if state != "running":
         raise self.retry(countdown=30)
+
+    redis = _redis()
+    interval_seconds = int(
+        redis.get("settings:interval_seconds")
+        or os.getenv("MAILING_INTERVAL_SECONDS", "30")
+    )
+    if not redis.set(
+        "mailing:interval_lock",
+        str(contact_id),
+        nx=True,
+        ex=max(1, interval_seconds),
+    ):
+        raise self.retry(countdown=max(1, interval_seconds))
 
     block_reason = asyncio.run(_delivery_block_reason(contact_id))
     if block_reason:

@@ -40,6 +40,7 @@ class CommunicationRepository:
     ) -> list[Communication]:
         statement = (
             select(Communication)
+            .options(joinedload(Communication.contact))
             .order_by(Communication.created_at.desc())
             .offset(offset)
             .limit(limit)

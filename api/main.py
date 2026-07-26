@@ -2,11 +2,13 @@ import os
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi import Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import datetime
 
 from database.repositories.contact_repository import ContactRepository
 from schemas.contact import ContactRead
-from schemas.communication import CommunicationRead
+from schemas.communication import CommunicationListItem, CommunicationRead
 from schemas.search_run import SearchRunCreate, SearchRunRead
 from schemas.statistics import StatisticsRead
 from services.search_run_service import SearchRunService
@@ -51,6 +53,29 @@ class UpdateMessageRequest(BaseModel):
 class ContactResponseRequest(BaseModel):
     response: str
     interested: bool = False
+
+
+class MailingSettingsUpdate(BaseModel):
+    interval_seconds: int | None = Field(default=None, ge=1, le=86400)
+    daily_limit: int | None = Field(default=None, ge=1, le=100000)
+    timezone: str | None = None
+    work_start_hour: int | None = Field(default=None, ge=0, le=23)
+    work_end_hour: int | None = Field(default=None, ge=1, le=24)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("Неизвестный часовой пояс") from error
+        return value
+
+
+class MailingScheduleRequest(BaseModel):
+    scheduled_at: datetime
 
 
 @app.post("/search-runs", response_model=SearchRunRead)
@@ -157,6 +182,61 @@ async def get_statistics(
     session: AsyncSession = Depends(provider.get_session),
 ):
     return await StatisticsService(session).get(period)
+
+
+@app.post("/contacts/approve-all")
+async def approve_all_contacts(
+    session: AsyncSession = Depends(provider.get_session),
+):
+    repository = ContactRepository(session)
+    approved = 0
+    failures: list[dict[str, str | int]] = []
+
+    while True:
+        contacts = await repository.search(
+            status=ContactStatus.PENDING_REVIEW.value,
+            limit=100,
+        )
+        if not contacts:
+            break
+
+        for contact in contacts:
+            try:
+                if not (contact.generated_message or "").strip():
+                    contact.generated_message = ensure_contact_invitation(
+                        contact
+                    )
+                contact.preferred_channel = resolve_delivery_channel(
+                    contact
+                )
+                contact.status = ContactStatus.APPROVED.value
+                contact.next_action = "Готов к отправке"
+                await session.commit()
+
+                await mailing_queue.enqueue_contact(
+                    contact.id,
+                    contact.preferred_channel,
+                )
+                approved += 1
+            except Exception as error:  # noqa: BLE001
+                await session.rollback()
+                failures.append(
+                    {
+                        "contact_id": contact.id,
+                        "error": str(error),
+                    }
+                )
+                # Исключаем проблемную запись из повторной обработки цикла.
+                contact.status = ContactStatus.REQUIRES_HUMAN.value
+                contact.next_action = str(error)
+                await session.commit()
+
+    return {
+        "success": True,
+        "approved": approved,
+        "failed": len(failures),
+        "failures": failures,
+    }
 
 
 @app.post("/contacts/{contact_id}/approve")
@@ -346,9 +426,84 @@ async def get_contact_communications(
     return list(reversed(communications))
 
 
+@app.get(
+    "/communications",
+    response_model=list[CommunicationListItem],
+)
+async def list_recent_communications(
+    limit: int = 20,
+    offset: int = 0,
+    session: AsyncSession = Depends(provider.get_session),
+):
+    communications = await CommunicationService(
+        session
+    ).repository.get_all(
+        limit=max(1, min(limit, 100)),
+        offset=max(0, offset),
+    )
+    return [
+        {
+            "id": item.id,
+            "contact_id": item.contact_id,
+            "organization_name": item.contact.organization_name,
+            "channel": item.channel,
+            "direction": item.direction,
+            "message": item.message,
+            "status": item.status,
+            "created_at": item.created_at,
+        }
+        for item in reversed(communications)
+    ]
+
+
 @app.get("/mailing/status")
 async def get_mailing_status():
     return await mailing_queue.status()
+
+
+@app.get("/settings")
+async def get_settings():
+    settings = await mailing_queue.get_settings()
+    settings["integrations"] = {
+        "deepseek": bool(os.getenv("DEEPSEEK_API_KEY", "").strip()),
+        "tavily": bool(os.getenv("TAVILY_API_KEY", "").strip()),
+        "email": bool(os.getenv("MAILRU_SMTP_USER", "").strip()),
+        "telegram": bool(
+            os.getenv("TELEGRAM_OUTREACH_BOT_TOKEN", "").strip()
+        ),
+        "vk": bool(
+            os.getenv("VK_PLAYWRIGHT_STORAGE_STATE", "").strip()
+        ),
+        "ok": bool(
+            os.getenv("OK_PLAYWRIGHT_STORAGE_STATE", "").strip()
+        ),
+    }
+    return settings
+
+
+@app.patch("/settings")
+async def update_settings(data: MailingSettingsUpdate):
+    values = data.model_dump(exclude_none=True)
+    start = values.get("work_start_hour")
+    end = values.get("work_end_hour")
+    current = await mailing_queue.get_settings()
+    if start is not None or end is not None:
+        effective_start = start if start is not None else current["work_start_hour"]
+        effective_end = end if end is not None else current["work_end_hour"]
+        if effective_start >= effective_end:
+            raise HTTPException(
+                status_code=422,
+                detail="Начало рабочего времени должно быть раньше окончания",
+            )
+    return await mailing_queue.update_settings(values)
+
+
+@app.post("/mailing/schedule")
+async def schedule_mailing(data: MailingScheduleRequest):
+    try:
+        return await mailing_queue.schedule(data.scheduled_at)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/mailing/{action}")

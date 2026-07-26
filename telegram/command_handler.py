@@ -15,6 +15,7 @@ from telegram.keyboards.main import keyboard_build
 from telegram.keyboards.menu import (
     MAILING_BUTTON,
     MAIN_MENU_BUTTONS,
+    HISTORY_BUTTON,
     REVIEW_BUTTON,
     SEARCH_BUTTON,
     SETTINGS_BUTTON,
@@ -26,7 +27,8 @@ from telegram.keyboards.menu import (
     build_settings_menu,
     build_statistics_menu,
 )
-from telegram.review import build_review_card
+from telegram.review import build_communication_history, build_review_card
+from telegram.settings import build_settings_text
 
 
 class BotCommandHandler:
@@ -75,6 +77,23 @@ class BotCommandHandler:
                 reply_markup=build_mailing_menu(),
                 parse_mode="HTML",
             )
+        elif action == HISTORY_BUTTON:
+            try:
+                communications = (
+                    await self.api_client.get_recent_communications(
+                        str(message.from_user.id),
+                        limit=20,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Ошибка получения общей истории коммуникаций")
+                await message.answer(
+                    "Не удалось получить историю коммуникаций."
+                )
+                return
+            await message.answer(
+                build_communication_history(communications)
+            )
         elif action == STATISTICS_BUTTON:
             await message.answer(
                 "📊 <b>Статистика</b>\n\n"
@@ -87,15 +106,15 @@ class BotCommandHandler:
                 parse_mode="HTML",
             )
         elif action == SETTINGS_BUTTON:
+            try:
+                settings = await self.api_client.get_settings(
+                    str(message.from_user.id)
+                )
+            except Exception:  # noqa: BLE001
+                await message.answer("Не удалось получить настройки.")
+                return
             await message.answer(
-                "⚙️ <b>Настройки агента</b>\n\n"
-                "Интервал: не задан\n"
-                "Дневной лимит: не задан\n"
-                "Рабочее время: не задано\n"
-                "Часовой пояс: Asia/Novosibirsk\n"
-                "Автозапуск: выключен\n\n"
-                "DeepSeek: ⚪ не проверено\n"
-                "Tavily: ⚪ не проверено",
+                build_settings_text(settings),
                 reply_markup=build_settings_menu(),
                 parse_mode="HTML",
             )

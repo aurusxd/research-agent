@@ -1,4 +1,6 @@
 from html import escape
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import aiohttp
 from aiogram import F, Router
@@ -14,6 +16,10 @@ from telegram.keyboards.main import keyboard_build
 from telegram.keyboards.menu import build_mailing_menu, build_statistics_menu
 from telegram.review import build_communication_history, build_review_card
 from telegram.statistics import build_statistics_text
+from telegram.settings import (
+    build_integrations_text,
+    build_settings_text,
+)
 from utils.enums import ContactStatus
 
 router = Router()
@@ -21,6 +27,18 @@ router = Router()
 
 class ReviewEditState(StatesGroup):
     waiting_message = State()
+
+
+class MailingScheduleState(StatesGroup):
+    waiting_datetime = State()
+
+
+class SettingsEditState(StatesGroup):
+    waiting_value = State()
+
+
+def _is_message_not_modified(error: TelegramBadRequest) -> bool:
+    return "message is not modified" in str(error).lower()
 
 
 @router.message(ReviewEditState.waiting_message)
@@ -60,6 +78,93 @@ async def save_edited_message(
     )
 
 
+@router.message(MailingScheduleState.waiting_datetime)
+async def save_mailing_schedule(
+    message: Message,
+    state: FSMContext,
+    api_client: ApiClient,
+) -> None:
+    text = (message.text or "").strip()
+    try:
+        settings = await api_client.get_settings(str(message.from_user.id))
+        local_datetime = datetime.strptime(
+            text,
+            "%d.%m.%Y %H:%M",
+        ).replace(tzinfo=ZoneInfo(str(settings["timezone"])))
+        result = await api_client.schedule_mailing(
+            str(message.from_user.id),
+            local_datetime.astimezone(timezone.utc).isoformat(),
+        )
+    except ValueError:
+        await message.answer(
+            "Неверный формат. Пришлите дату как ДД.ММ.ГГГГ ЧЧ:ММ."
+        )
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("Не удалось запланировать рассылку")
+        await message.answer(
+            "Не удалось запланировать рассылку. "
+            "Убедитесь, что дата находится в будущем."
+        )
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ Рассылка запланирована на "
+        f"{result.get('scheduled_at', local_datetime.isoformat())}."
+    )
+
+
+@router.message(SettingsEditState.waiting_value)
+async def save_setting(
+    message: Message,
+    state: FSMContext,
+    api_client: ApiClient,
+) -> None:
+    data = await state.get_data()
+    setting = data.get("setting")
+    text = (message.text or "").strip()
+    try:
+        if setting == "interval":
+            values = {"interval_seconds": int(text)}
+        elif setting == "daily_limit":
+            values = {"daily_limit": int(text)}
+        elif setting == "working_hours":
+            parts = text.replace(":", "").split("-")
+            if len(parts) != 2:
+                raise ValueError
+            values = {
+                "work_start_hour": int(parts[0]),
+                "work_end_hour": int(parts[1]),
+            }
+        elif setting == "timezone":
+            ZoneInfo(text)
+            values = {"timezone": text}
+        else:
+            raise ValueError
+        settings = await api_client.update_settings(
+            str(message.from_user.id),
+            values,
+        )
+    except (KeyError, TypeError, ValueError):
+        await message.answer(
+            "Значение не распознано. Проверьте формат и попробуйте снова."
+        )
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("Не удалось сохранить настройку")
+        await message.answer(
+            "Не удалось сохранить настройку. Проверьте значение."
+        )
+        return
+
+    await state.clear()
+    await message.answer(
+        build_settings_text(settings),
+        parse_mode="HTML",
+    )
+
+
 def _mailing_status_text(data: dict) -> str:
     labels = {
         "running": "работает",
@@ -89,6 +194,7 @@ def _mailing_status_text(data: dict) -> str:
 async def control_mailing(
     callback: CallbackQuery,
     api_client: ApiClient,
+    state: FSMContext,
 ) -> None:
     if callback.from_user is None or not isinstance(callback.message, Message):
         await callback.answer("Не удалось управлять рассылкой", show_alert=True)
@@ -96,9 +202,11 @@ async def control_mailing(
 
     action = (callback.data or "").rsplit(":", 1)[-1]
     if action == "schedule":
-        await callback.answer(
-            "Расписание появится после MVP. Используйте «Начать сейчас».",
-            show_alert=True,
+        await state.set_state(MailingScheduleState.waiting_datetime)
+        await callback.answer()
+        await callback.message.answer(
+            "Пришлите дату и время запуска в формате "
+            "ДД.ММ.ГГГГ ЧЧ:ММ."
         )
         return
     try:
@@ -121,9 +229,73 @@ async def control_mailing(
             reply_markup=build_mailing_menu(),
         )
     except TelegramBadRequest as error:
-        if "message is not modified" not in str(error).lower():
+        if not _is_message_not_modified(error):
             raise
     await callback.answer("Состояние рассылки актуально")
+
+
+@router.callback_query(F.data.startswith("ui:settings:"))
+async def control_settings(
+    callback: CallbackQuery,
+    api_client: ApiClient,
+    state: FSMContext,
+) -> None:
+    if callback.from_user is None or not isinstance(
+        callback.message,
+        Message,
+    ):
+        await callback.answer(
+            "Не удалось открыть настройку",
+            show_alert=True,
+        )
+        return
+
+    action = (callback.data or "").rsplit(":", 1)[-1]
+    if action == "auto_start":
+        await callback.answer(
+            "Автозапуск не изменяется в текущей версии.",
+            show_alert=True,
+        )
+        return
+
+    if action == "integrations":
+        try:
+            settings = await api_client.get_settings(
+                str(callback.from_user.id)
+            )
+        except Exception:  # noqa: BLE001
+            await callback.answer(
+                "Не удалось проверить интеграции",
+                show_alert=True,
+            )
+            return
+        await callback.message.answer(
+            build_integrations_text(settings),
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    prompts = {
+        "interval": "Введите интервал между отправками в секундах.",
+        "daily_limit": "Введите общий дневной лимит сообщений.",
+        "working_hours": (
+            "Введите рабочие часы в формате 9-19 "
+            "(начало-конец, без минут)."
+        ),
+        "timezone": (
+            "Введите часовой пояс IANA, например Asia/Novosibirsk."
+        ),
+    }
+    prompt = prompts.get(action)
+    if prompt is None:
+        await callback.answer("Неизвестная настройка", show_alert=True)
+        return
+
+    await state.set_state(SettingsEditState.waiting_value)
+    await state.update_data(setting=action)
+    await callback.message.answer(prompt)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("ui:review:"))
@@ -141,6 +313,29 @@ async def open_review_submenu(
 
     action = (callback.data or "").rsplit(":", 1)[-1]
     user_id = str(callback.from_user.id)
+
+    if action == "approve_all":
+        try:
+            result = await api_client.approve_all_contacts(user_id)
+        except Exception:  # noqa: BLE001
+            log.exception("Не удалось одобрить всю очередь контактов")
+            await callback.answer(
+                "Не удалось одобрить всю очередь",
+                show_alert=True,
+            )
+            return
+
+        approved = int(result.get("approved", 0))
+        failed = int(result.get("failed", 0))
+        await callback.message.edit_text(
+            "✅ <b>Массовое одобрение завершено</b>\n\n"
+            f"Одобрено: {approved}\n"
+            f"Пропущено с ошибкой: {failed}",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+        await callback.answer("Очередь обработана")
+        return
 
     if action == "requests":
         await callback.message.edit_text(
@@ -261,11 +456,15 @@ async def show_statistics(
         )
         return
 
-    await callback.message.edit_text(
-        build_statistics_text(statistics),
-        parse_mode="HTML",
-        reply_markup=build_statistics_menu(period),
-    )
+    try:
+        await callback.message.edit_text(
+            build_statistics_text(statistics),
+            parse_mode="HTML",
+            reply_markup=build_statistics_menu(period),
+        )
+    except TelegramBadRequest as error:
+        if not _is_message_not_modified(error):
+            raise
     await callback.answer("Статистика обновлена")
 
 

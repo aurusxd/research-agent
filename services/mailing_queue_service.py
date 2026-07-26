@@ -123,6 +123,8 @@ class MailingQueueController:
         try:
             state = await redis.get("mailing:state") or "running"
             started_at = await redis.get("mailing:started_at")
+            scheduled_at = await redis.get("mailing:scheduled_at")
+            settings = await self._settings_from_redis(redis)
         finally:
             await redis.aclose()
 
@@ -139,11 +141,12 @@ class MailingQueueController:
                     )
                 )
             )
-            local_now = datetime.now(self.timezone)
+            active_timezone = ZoneInfo(settings["timezone"])
+            local_now = datetime.now(active_timezone)
             day_start = datetime.combine(
                 local_now.date(),
                 time.min,
-                tzinfo=self.timezone,
+                tzinfo=active_timezone,
             ).astimezone(timezone.utc)
             run_start = None
             if started_at:
@@ -188,12 +191,85 @@ class MailingQueueController:
             "sent_in_run": int(sent_in_run or 0),
             "sent_today": int(sent_today or 0),
             "failed_in_run": int(failed_in_run or 0),
-            "interval_seconds": self.interval_seconds,
-            "daily_limit": self.daily_limit,
-            "timezone": str(self.timezone),
+            "interval_seconds": settings["interval_seconds"],
+            "daily_limit": settings["daily_limit"],
+            "timezone": settings["timezone"],
+            "work_start_hour": settings["work_start_hour"],
+            "work_end_hour": settings["work_end_hour"],
             "last_error": None,
             "started_at": started_at,
+            "scheduled_at": scheduled_at,
         }
+
+    async def _settings_from_redis(self, redis: Redis) -> dict[str, Any]:
+        values = await redis.mget(
+            "settings:interval_seconds",
+            "settings:daily_limit",
+            "settings:timezone",
+            "settings:work_start_hour",
+            "settings:work_end_hour",
+        )
+        return {
+            "interval_seconds": int(values[0] or self.interval_seconds),
+            "daily_limit": int(values[1] or self.daily_limit),
+            "timezone": values[2] or str(self.timezone),
+            "work_start_hour": int(
+                values[3] or os.getenv("MAILING_WORK_START_HOUR", "9")
+            ),
+            "work_end_hour": int(
+                values[4] or os.getenv("MAILING_WORK_END_HOUR", "19")
+            ),
+        }
+
+    async def get_settings(self) -> dict[str, Any]:
+        redis = await self._redis()
+        try:
+            return await self._settings_from_redis(redis)
+        finally:
+            await redis.aclose()
+
+    async def update_settings(
+        self,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        redis = await self._redis()
+        try:
+            mapping = {
+                f"settings:{key}": str(value)
+                for key, value in values.items()
+            }
+            if mapping:
+                await redis.mset(mapping)
+            return await self._settings_from_redis(redis)
+        finally:
+            await redis.aclose()
+
+    async def schedule(self, scheduled_at: datetime) -> dict[str, Any]:
+        if scheduled_at.tzinfo is None:
+            raise ValueError("Дата запуска должна содержать часовой пояс")
+        if scheduled_at <= datetime.now(timezone.utc):
+            raise ValueError("Дата запуска должна быть в будущем")
+
+        from worker.tasks import start_scheduled_mailing
+
+        task = start_scheduled_mailing.apply_async(eta=scheduled_at)
+        redis = await self._redis()
+        try:
+            previous_task_id = await redis.get("mailing:scheduled_task_id")
+            if previous_task_id:
+                from worker.celery_app import celery_app
+
+                celery_app.control.revoke(previous_task_id)
+            await redis.mset(
+                {
+                    "mailing:state": "scheduled",
+                    "mailing:scheduled_at": scheduled_at.isoformat(),
+                    "mailing:scheduled_task_id": task.id,
+                }
+            )
+        finally:
+            await redis.aclose()
+        return await self.status()
 
 
 mailing_queue = MailingQueueController()

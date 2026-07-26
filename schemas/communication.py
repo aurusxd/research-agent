@@ -23,3 +23,7 @@ class CommunicationRead(CommunicationCreate):
 
     id: int
     created_at: datetime
+
+
+class CommunicationListItem(CommunicationRead):
+    organization_name: str

@@ -8,6 +8,7 @@ from aiogram.types import (
 
 SEARCH_BUTTON = "🔍 Запустить поиск"
 REVIEW_BUTTON = "📋 Проверка"
+HISTORY_BUTTON = "🕘 История"
 MAILING_BUTTON = "🚀 Рассылка"
 STATISTICS_BUTTON = "📊 Статистика"
 SETTINGS_BUTTON = "⚙️ Настройки"
@@ -15,6 +16,7 @@ SETTINGS_BUTTON = "⚙️ Настройки"
 MAIN_MENU_BUTTONS = {
     SEARCH_BUTTON,
     REVIEW_BUTTON,
+    HISTORY_BUTTON,
     MAILING_BUTTON,
     STATISTICS_BUTTON,
     SETTINGS_BUTTON,
@@ -25,8 +27,8 @@ def build_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=SEARCH_BUTTON), KeyboardButton(text=REVIEW_BUTTON)],
-            [KeyboardButton(text=MAILING_BUTTON), KeyboardButton(text=STATISTICS_BUTTON)],
-            [KeyboardButton(text=SETTINGS_BUTTON)],
+            [KeyboardButton(text=HISTORY_BUTTON), KeyboardButton(text=MAILING_BUTTON)],
+            [KeyboardButton(text=STATISTICS_BUTTON), KeyboardButton(text=SETTINGS_BUTTON)],
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие или напишите запрос агенту",
@@ -47,6 +49,7 @@ def build_review_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📨 Черновики организаций", callback_data="ui:review:contacts")],
+            [InlineKeyboardButton(text="✅ Одобрить все", callback_data="ui:review:approve_all")],
             [InlineKeyboardButton(text="✅ Одобренные", callback_data="ui:review:approved")],
             [InlineKeyboardButton(text="❌ Отклонённые", callback_data="ui:review:rejected")],
         ],

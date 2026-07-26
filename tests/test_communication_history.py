@@ -89,3 +89,18 @@ class CommunicationHistoryPresentationTest(TestCase):
         self.assertIn("→ Исходящее", text)
         self.assertIn("← Входящее", text)
         self.assertLess(text.index("Здравствуйте"), text.index("Нам интересно"))
+
+    def test_global_history_shows_organization(self) -> None:
+        text = build_communication_history(
+            [
+                {
+                    "organization_name": "Краеведческий музей",
+                    "channel": "email",
+                    "direction": "outgoing",
+                    "message": "Приглашение",
+                    "status": "sent",
+                    "created_at": "2026-07-26T10:30:00+00:00",
+                }
+            ]
+        )
+        self.assertIn("Краеведческий музей", text)
