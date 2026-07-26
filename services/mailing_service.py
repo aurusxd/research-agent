@@ -251,7 +251,7 @@ class ContactMailingService:
                     text=message,
                 )
             elif channel == "telegram":
-                recipient = (contact.recipient_external_id or "").strip()
+                recipient = (contact.recipient_external_id or contact.recipient_address).strip()
                 if not recipient:
                     raise ContactNotReadyError(
                         "Для Telegram отсутствует recipient_external_id"
