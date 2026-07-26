@@ -17,3 +17,5 @@ logs/
 
 vk_auth.json
 ok_auth.json
+
+smoke-artifacts/
