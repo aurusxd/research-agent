@@ -97,11 +97,18 @@ async def prepare_profile_page(
     page: Page,
     url: str,
     *,
+    subscribe_if_available: bool = True,
     screenshot_dir: Path = Path("/tmp"),
 ):
     await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
     await page.wait_for_timeout(2_000)
     await _raise_if_blocked(page, screenshot_dir)
+
+    subscribe = page.get_by_role("button", name=SUBSCRIBE_TEXT)
+    if subscribe_if_available and await locator_is_visible(subscribe):
+        await subscribe.first.click(timeout=10_000)
+        await page.wait_for_timeout(2_000)
+        await _raise_if_blocked(page, screenshot_dir)
 
     write_control = await find_write_control(page)
     if write_control is None:
@@ -120,16 +127,10 @@ async def send_message_on_page(
     url: str,
     message: str,
     *,
-    subscribe_if_available: bool = True,
     screenshot_dir: Path = Path("/tmp"),
 ) -> dict[str, str | bool]:
 
-    subscribe = page.get_by_role("button", name=SUBSCRIBE_TEXT)
-    if subscribe_if_available and await locator_is_visible(subscribe):
-        await subscribe.first.click(timeout=10_000)
-        await page.wait_for_timeout(2_000)
-        await _raise_if_blocked(page, screenshot_dir)
-    
+
     write_control = await prepare_profile_page(
         page,
         url,

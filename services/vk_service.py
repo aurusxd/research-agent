@@ -110,6 +110,68 @@ async def find_message_control(page: Page):
     return None
 
 
+async def _find_chat_editor(page: Page):
+    """Return the editor of the opened messenger, never a wall comment field."""
+    selectors = (
+        '[contenteditable="true"][data-placeholder="Сообщение"]',
+        '[contenteditable="true"][aria-label="Сообщение"]',
+        'textarea[placeholder="Сообщение"]',
+        'input[placeholder="Сообщение"]',
+        '[contenteditable="true"][data-placeholder*="сообщен" i]',
+        '[contenteditable="true"][aria-label*="сообщен" i]',
+        'textarea[placeholder*="сообщен" i]',
+    )
+    for selector in selectors:
+        candidates = page.locator(selector)
+        for index in range(await candidates.count()):
+            candidate = candidates.nth(index)
+            if await locator_is_visible(candidate):
+                return candidate
+    return None
+
+
+async def _new_non_editor_message_is_visible(
+    matching_messages,
+    matching_count_before: int,
+) -> bool:
+    matching_count_after = await matching_messages.count()
+    for index in range(matching_count_before, matching_count_after):
+        candidate = matching_messages.nth(index)
+        try:
+            if not await candidate.is_visible():
+                continue
+            belongs_to_editor = await candidate.evaluate(
+                """element => Boolean(
+                    element.closest('[contenteditable="true"], textarea, input')
+                )"""
+            )
+            if not belongs_to_editor:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+async def _find_chat_surface(page: Page, editor):
+    chat_window = editor.locator(
+        'xpath=ancestor::*[@id="FCWindow"][1]'
+    )
+    if await locator_is_visible(chat_window):
+        return chat_window
+
+    selectors = (
+        '[role="list"][aria-label="Сообщения"]',
+        '[role="log"]',
+    )
+    for selector in selectors:
+        candidates = page.locator(selector)
+        for index in range(await candidates.count()):
+            candidate = candidates.nth(index)
+            if await locator_is_visible(candidate):
+                return candidate
+    return None
+
+
 def _screenshot_path(directory: Path, label: str) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     directory.mkdir(parents=True, exist_ok=True)
@@ -209,23 +271,46 @@ async def send_message_on_page(
     await message_control.click(timeout=10_000)
     await _raise_if_blocked(page, screenshot_dir)
 
-    editor = page.locator(
-        '[contenteditable="true"][role="textbox"], '
-        '[contenteditable="true"], textarea'
-    ).last
-    await editor.wait_for(state="visible", timeout=15_000)
-    matching_messages = page.get_by_text(message, exact=True)
+    editor = None
+    editor_deadline = asyncio.get_running_loop().time() + 15
+    while asyncio.get_running_loop().time() < editor_deadline:
+        editor = await _find_chat_editor(page)
+        if editor is not None:
+            break
+        await page.wait_for_timeout(250)
+    if editor is None:
+        screenshot = _screenshot_path(
+            screenshot_dir,
+            "chat-editor-missing",
+        )
+        await page.screenshot(path=str(screenshot), full_page=True)
+        raise RuntimeError(
+            "VK открыл окно сообщения, но редактор чата не найден. "
+            f"Screenshot: {screenshot}"
+        )
+
+    chat_surface = await _find_chat_surface(page, editor)
+    if chat_surface is None:
+        screenshot = _screenshot_path(
+            screenshot_dir,
+            "chat-surface-missing",
+        )
+        await page.screenshot(path=str(screenshot), full_page=True)
+        raise RuntimeError(
+            "VK открыл редактор, но контейнер нужного чата не найден. "
+            f"Screenshot: {screenshot}"
+        )
+
+    # For a brand-new conversation VK does not render the message-history
+    # list until the first message is sent. Scope to the chat window itself;
+    # editor descendants are explicitly excluded during confirmation.
+    matching_messages = chat_surface.get_by_text(message, exact=True)
     matching_count_before = await matching_messages.count()
     await editor.fill(message)
 
-    send_button = page.get_by_role(
-        "button",
-        name=re.compile(r"^отправить", re.IGNORECASE),
-    )
-    if await locator_is_visible(send_button):
-        await send_button.first.click(timeout=10_000)
-    else:
-        await editor.press("Enter")
+    # Pressing Enter on the selected chat editor is safer than using a global
+    # "Send" button: a community page can contain many comment send buttons.
+    await editor.press("Enter")
 
     await _raise_if_blocked(page, screenshot_dir)
 
@@ -251,18 +336,10 @@ async def send_message_on_page(
             # visible in the conversation history.
             editor_empty = True
 
-        matching_count_after = await matching_messages.count()
-        new_message_visible = False
-        for index in range(
+        new_message_visible = await _new_non_editor_message_is_visible(
+            matching_messages,
             matching_count_before,
-            matching_count_after,
-        ):
-            try:
-                if await matching_messages.nth(index).is_visible():
-                    new_message_visible = True
-                    break
-            except Exception:
-                continue
+        )
 
         if editor_empty and new_message_visible:
             send_confirmed = True
