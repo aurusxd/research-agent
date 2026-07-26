@@ -115,6 +115,7 @@ async def prepare_profile_page(
     message_control = await find_message_control(page)
     if message_control is None:
         screenshot = _screenshot_path(screenshot_dir, "message-control-missing")
+        await page.get_by_text("Продолжить").click()
         await page.screenshot(path=str(screenshot), full_page=True)
         raise RuntimeError(
             "VK не предоставил кнопку отправки сообщения; возможно, сообщения "
