@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from datetime import datetime, timezone
@@ -116,6 +117,7 @@ async def prepare_profile_page(
     if message_control is None:
         screenshot = _screenshot_path(screenshot_dir, "message-control-missing")
         await page.get_by_text("Продолжить").click()
+        await asyncio.sleep(4)
         await page.screenshot(path=str(screenshot), full_page=True)
         raise RuntimeError(
             "VK не предоставил кнопку отправки сообщения; возможно, сообщения "
