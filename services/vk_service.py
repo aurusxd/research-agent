@@ -43,7 +43,7 @@ class VkService:
                     )
 
                 page.locator('button:has-text("Подписаться")').click()
-                asyncio.sleep(2)
+                await asyncio.sleep(2)
                 open_dialog = page.locator(
                     'a[href^="/write"], '
                     'a[href*="/write"], '
