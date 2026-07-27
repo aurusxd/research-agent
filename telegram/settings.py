@@ -29,11 +29,4 @@ def build_integrations_text(settings: dict[str, Any]) -> str:
         f"{'✅' if integrations.get(key) else '❌'} {label}"
         for key, label in labels.items()
     )
-    lines.extend(
-        [
-            "",
-            "Ключи не показываются в Telegram. "
-            "Для изменения используйте .env.",
-        ]
-    )
     return "\n".join(lines)

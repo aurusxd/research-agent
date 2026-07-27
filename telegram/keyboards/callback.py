@@ -339,8 +339,7 @@ async def open_review_submenu(
 
     if action == "requests":
         await callback.message.edit_text(
-            "🔎 <b>Найденные обращения</b>\n\n"
-            "Эта очередь относится к ТЗ №2 и не входит в текущий MVP.",
+            "🔎 <b>Найденные обращения</b>\n\n",
             parse_mode="HTML",
             reply_markup=None,
         )

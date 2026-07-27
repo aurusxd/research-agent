@@ -82,6 +82,11 @@ async def _notify_delivery_error(result: dict[str, object]) -> None:
     fallback_channel = result.get("fallback_channel")
     if fallback_channel:
         lines.append(f"Следующая попытка: канал {fallback_channel}")
+    retry_attempt = result.get("retry_attempt")
+    if retry_attempt:
+        lines.append(
+            f"Celery повторит отправку, неудачная попытка №{retry_attempt}"
+        )
     lines.append(f"Ошибка: {error[:2000]}")
     text = "\n".join(lines)
     screenshot = _screenshot_path(error)
@@ -450,6 +455,12 @@ def send_approved_contact(self, contact_id: int):
         )
         return result
     if result.get("retryable"):
+        retry_result = {
+            **result,
+            "status": "retrying",
+            "retry_attempt": self.request.retries + 1,
+        }
+        asyncio.run(_notify_delivery_error(retry_result))
         if self.request.retries >= 3:
             asyncio.run(
                 _mark_retry_exhausted(
@@ -462,7 +473,6 @@ def send_approved_contact(self, contact_id: int):
                 "status": "failed",
                 "retry_exhausted": True,
             }
-            asyncio.run(_notify_delivery_error(exhausted_result))
             return exhausted_result
         raise self.retry(
             countdown=min(900, 30 * (2 ** self.request.retries)),
