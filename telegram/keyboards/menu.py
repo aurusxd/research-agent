@@ -100,7 +100,6 @@ def build_settings_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📨 Дневной лимит", callback_data="ui:settings:daily_limit")],
             [InlineKeyboardButton(text="🕘 Рабочее время", callback_data="ui:settings:working_hours")],
             [InlineKeyboardButton(text="🌍 Часовой пояс", callback_data="ui:settings:timezone")],
-            [InlineKeyboardButton(text="🤖 Автозапуск", callback_data="ui:settings:auto_start")],
             [InlineKeyboardButton(text="🔑 Интеграции и API-ключи", callback_data="ui:settings:integrations")],
         ],
     )

@@ -87,6 +87,8 @@ async def _notify_delivery_error(result: dict[str, object]) -> None:
         lines.append(
             f"Celery повторит отправку, неудачная попытка №{retry_attempt}"
         )
+    if result.get("channels_exhausted"):
+        lines.append("Других доступных каналов связи не осталось")
     lines.append(f"Ошибка: {error[:2000]}")
     text = "\n".join(lines)
     screenshot = _screenshot_path(error)
@@ -208,7 +210,6 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                 if (
                     contact
                     and not retryable
-                    and contact.status != ContactStatus.REQUIRES_HUMAN.value
                 ):
                     failed_channels = set(
                         (
@@ -284,6 +285,10 @@ async def _send(contact_id: int) -> dict[str, str | int]:
                     ),
                     "error": str(error),
                     "retryable": retryable,
+                    "failed_channel": (
+                        contact.preferred_channel if contact else "unknown"
+                    ),
+                    "channels_exhausted": not retryable,
                 }
             except Exception:
                 contact = await session.get(Contact, contact_id)
@@ -403,6 +408,56 @@ async def _mark_retry_exhausted(contact_id: int, error: str) -> None:
         await engine.dispose()
 
 
+async def _fallback_after_retry_exhausted(
+    contact_id: int,
+    error: str,
+) -> dict[str, object] | None:
+    engine = create_async_engine(
+        config.database.database_url,
+        poolclass=NullPool,
+    )
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            contact = await session.get(Contact, contact_id)
+            if contact is None:
+                return None
+            failed_channel = contact.preferred_channel or "unknown"
+            failed_channels = set(
+                (
+                    await session.scalars(
+                        select(Communication.channel).where(
+                            Communication.contact_id == contact_id,
+                            Communication.direction == "outgoing",
+                            Communication.status == "failed",
+                        )
+                    )
+                ).all()
+            )
+            fallback = resolve_fallback_channel(contact, failed_channels)
+            if fallback is None:
+                return None
+
+            fallback_channel, recipient = fallback
+            contact.preferred_channel = fallback_channel
+            contact.recipient_address = recipient
+            contact.status = ContactStatus.QUEUED.value
+            contact.sending_started_at = None
+            contact.next_action = (
+                f"Повторы канала {failed_channel} исчерпаны; "
+                f"автоматический fallback на {fallback_channel}"
+            )
+            await session.commit()
+            return {
+                "contact_id": contact_id,
+                "status": "fallback",
+                "fallback_channel": fallback_channel,
+                "failed_channel": failed_channel,
+                "error": error,
+            }
+    finally:
+        await engine.dispose()
+
+
 @celery_app.task(
     bind=True,
     name="worker.tasks.send_approved_contact",
@@ -455,13 +510,23 @@ def send_approved_contact(self, contact_id: int):
         )
         return result
     if result.get("retryable"):
-        retry_result = {
-            **result,
-            "status": "retrying",
-            "retry_attempt": self.request.retries + 1,
-        }
-        asyncio.run(_notify_delivery_error(retry_result))
         if self.request.retries >= 3:
+            fallback_result = asyncio.run(
+                _fallback_after_retry_exhausted(
+                    contact_id,
+                    str(result.get("error") or "временная ошибка"),
+                )
+            )
+            if fallback_result:
+                asyncio.run(_notify_delivery_error(fallback_result))
+                fallback_channel = str(
+                    fallback_result["fallback_channel"]
+                )
+                send_approved_contact.apply_async(
+                    args=[contact_id],
+                    queue=queue_for_channel(fallback_channel),
+                )
+                return fallback_result
             asyncio.run(
                 _mark_retry_exhausted(
                     contact_id,
@@ -472,8 +537,16 @@ def send_approved_contact(self, contact_id: int):
                 **result,
                 "status": "failed",
                 "retry_exhausted": True,
+                "channels_exhausted": True,
             }
+            asyncio.run(_notify_delivery_error(exhausted_result))
             return exhausted_result
+        retry_result = {
+            **result,
+            "status": "retrying",
+            "retry_attempt": self.request.retries + 1,
+        }
+        asyncio.run(_notify_delivery_error(retry_result))
         raise self.retry(
             countdown=min(900, 30 * (2 ** self.request.retries)),
             max_retries=3,

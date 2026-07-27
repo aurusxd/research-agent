@@ -253,10 +253,27 @@ class TelegramService:
                     },
                 )
         if response.is_error:
-            raise TelegramSendError(
-                "Не удалось отправить диагностический скриншот: "
-                f"{response.text[:500]}"
-            )
+            # Telegram rejects very wide/tall screenshots as photos. Sending
+            # the same image as a document preserves it without dimension
+            # restrictions.
+            async with httpx.AsyncClient(timeout=60) as client:
+                with path.open("rb") as document:
+                    document_response = await client.post(
+                        f"https://api.telegram.org/bot{token}/sendDocument",
+                        data={"chat_id": chat_id, "caption": text[:1024]},
+                        files={
+                            "document": (
+                                path.name,
+                                document,
+                                "application/octet-stream",
+                            ),
+                        },
+                    )
+            if document_response.is_error:
+                await TelegramService.notify_chat(
+                    chat_id,
+                    f"{text}\n\nСкриншот: {photo_path}",
+                )
 
     @staticmethod
     async def notify_operator(text: str) -> None:

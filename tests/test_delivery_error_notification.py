@@ -94,3 +94,26 @@ class DeliveryErrorNotificationTest(IsolatedAsyncioTestCase):
         text, _ = notify.await_args.args
         self.assertIn("Статус: retrying", text)
         self.assertIn("неудачная попытка №2", text)
+
+    @patch(
+        "worker.tasks.TelegramService.notify_operator",
+        new_callable=AsyncMock,
+    )
+    async def test_reports_when_all_channels_are_exhausted(
+        self,
+        notify: AsyncMock,
+    ) -> None:
+        await _notify_delivery_error(
+            {
+                "contact_id": 14,
+                "status": "failed",
+                "failed_channel": "telegram",
+                "channels_exhausted": True,
+                "error": "Получатель недоступен",
+            }
+        )
+
+        self.assertIn(
+            "Других доступных каналов связи не осталось",
+            notify.await_args.args[0],
+        )

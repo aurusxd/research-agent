@@ -1,7 +1,13 @@
 from pathlib import Path
+import logging
 import sys
 
 from loguru import logger
+
+
+# httpx logs complete request URLs at INFO level. Telegram Bot API embeds the
+# secret token in that URL, so those records must never reach Docker logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class AppLogger:
