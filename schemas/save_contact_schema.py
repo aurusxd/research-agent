@@ -51,7 +51,11 @@ class SaveContactToolArgs(BaseModel):
 
     contact_form_url: str | None = Field(
         default=None,
-        description="Прямая ссылка на официальную форму обратной связи организации",
+        description=(
+            "Прямая ссылка на интерактивную форму с полем сообщения и "
+            "кнопкой отправки. Страница, где опубликован email, "
+            "не является contact_form_url"
+        ),
     )
 
     vk_url: str | None = Field(

@@ -98,6 +98,67 @@ async def save_contact(
                 email = None
                 if (preferred_channel or "").strip().lower() == "email":
                     preferred_channel = None
+
+            if (preferred_channel or "").strip().lower() in {
+                "contact_form",
+                "form",
+                "website_form",
+            }:
+                form_verification = next(
+                    (
+                        item
+                        for item in verifications
+                        if contact_form_url
+                        and contact_form_url.rstrip("/")
+                        in {
+                            str(item.get("source_url") or "").rstrip("/"),
+                            str(item.get("final_url") or "").rstrip("/"),
+                        }
+                    ),
+                    None,
+                )
+                if form_verification is None and contact_form_url:
+                    form_verification = await asyncio.to_thread(
+                        verify_source,
+                        contact_form_url,
+                    )
+
+                if not (
+                    form_verification
+                    and form_verification.get("verified")
+                    and form_verification.get("has_contact_form")
+                ):
+                    page_emails = [
+                        item.strip().lower()
+                        for item in (
+                            (form_verification or {}).get("emails") or []
+                        )
+                        if item.strip()
+                    ]
+                    replacement_email = (
+                        email.strip().lower()
+                        if email
+                        and email.strip().lower() in verified_emails
+                        else (page_emails[0] if page_emails else None)
+                    )
+                    if replacement_email:
+                        log.info(
+                            "URL {} не содержит интерактивной формы; "
+                            "канал контакта {} переключён на email {}",
+                            contact_form_url,
+                            organization_name,
+                            replacement_email,
+                        )
+                        email = replacement_email
+                        preferred_channel = "email"
+                        recipient_address = replacement_email
+                        contact_form_url = None
+                    else:
+                        raise ValueError(
+                            "Страница contact_form_url не содержит "
+                            "интерактивной формы с полем сообщения и кнопкой "
+                            "отправки; подтверждённый email также не найден"
+                        )
         normalized_channel = (preferred_channel or "").strip().lower()
         if normalized_channel == "telegram" and not recipient_address:
             recipient_address = telegram_url or recipient_external_id
