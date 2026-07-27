@@ -225,6 +225,40 @@ class TelegramService:
             )
 
     @staticmethod
+    async def notify_chat_with_photo(
+        chat_id: str,
+        text: str,
+        photo_path: str,
+    ) -> None:
+        token = os.getenv("BOT_TOKEN", "").strip()
+        path = Path(photo_path)
+        if not token or not chat_id.strip():
+            raise TelegramConfigurationError(
+                "Не заданы BOT_TOKEN или chat_id для уведомления"
+            )
+        if not path.is_file():
+            await TelegramService.notify_chat(
+                chat_id,
+                f"{text}\n\nСкриншот не найден: {photo_path}",
+            )
+            return
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            with path.open("rb") as photo:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendPhoto",
+                    data={"chat_id": chat_id, "caption": text[:1024]},
+                    files={
+                        "photo": (path.name, photo, "image/png"),
+                    },
+                )
+        if response.is_error:
+            raise TelegramSendError(
+                "Не удалось отправить диагностический скриншот: "
+                f"{response.text[:500]}"
+            )
+
+    @staticmethod
     async def notify_operator(text: str) -> None:
         chat_id = os.getenv("OPERATOR_TELEGRAM_CHAT_ID", "").strip()
         if not chat_id:
@@ -232,3 +266,19 @@ class TelegramService:
                 "Не задан OPERATOR_TELEGRAM_CHAT_ID для уведомления"
             )
         await TelegramService.notify_chat(chat_id, text)
+
+    @staticmethod
+    async def notify_operator_with_photo(
+        text: str,
+        photo_path: str,
+    ) -> None:
+        chat_id = os.getenv("OPERATOR_TELEGRAM_CHAT_ID", "").strip()
+        if not chat_id:
+            raise TelegramConfigurationError(
+                "Не задан OPERATOR_TELEGRAM_CHAT_ID для уведомления"
+            )
+        await TelegramService.notify_chat_with_photo(
+            chat_id,
+            text,
+            photo_path,
+        )

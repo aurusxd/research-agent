@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,12 @@ from utils.enums import ContactStatus
 from worker.celery_app import celery_app
 from worker.policy import is_temporary_error
 from worker.routing import queue_for_channel
+
+
+_SCREENSHOT_PATH_RE = re.compile(
+    r"Screenshot:\s*(?P<path>.+?\.(?:png|jpe?g|webp))(?=\s|$)",
+    re.IGNORECASE,
+)
 
 
 def _redis() -> Redis:
@@ -50,6 +57,45 @@ def _build_search_report(result: dict[str, str | int]) -> str:
     if int(result["saved_count"]) > 0:
         lines.append("Контакты доступны в разделе «Проверка материалов».")
     return "\n".join(lines)
+
+
+def _screenshot_path(error: str) -> str | None:
+    match = _SCREENSHOT_PATH_RE.search(error)
+    return match.group("path").strip() if match else None
+
+
+async def _notify_delivery_error(result: dict[str, object]) -> None:
+    status = str(result.get("status") or "")
+    error = str(result.get("error") or "Неизвестная ошибка отправки")
+    contact_id = result.get("contact_id")
+    failed_channel = str(
+        result.get("failed_channel")
+        or result.get("channel")
+        or "неизвестен"
+    )
+    lines = [
+        "⚠️ Ошибка отправки сообщения",
+        f"Контакт: ID={contact_id}",
+        f"Канал: {failed_channel}",
+        f"Статус: {status}",
+    ]
+    fallback_channel = result.get("fallback_channel")
+    if fallback_channel:
+        lines.append(f"Следующая попытка: канал {fallback_channel}")
+    lines.append(f"Ошибка: {error[:2000]}")
+    text = "\n".join(lines)
+    screenshot = _screenshot_path(error)
+
+    try:
+        if screenshot:
+            await TelegramService.notify_operator_with_photo(text, screenshot)
+        else:
+            await TelegramService.notify_operator(text)
+    except Exception:
+        log.exception(
+            "Не удалось уведомить оператора об ошибке отправки контакту ID={}",
+            contact_id,
+        )
 
 
 async def _execute_search(
@@ -382,9 +428,22 @@ def send_approved_contact(self, contact_id: int):
     if block_reason:
         raise self.retry(countdown=300)
 
-    result = asyncio.run(_send(contact_id))
+    try:
+        result = asyncio.run(_send(contact_id))
+    except Exception as error:
+        asyncio.run(
+            _notify_delivery_error(
+                {
+                    "contact_id": contact_id,
+                    "status": "worker_error",
+                    "error": str(error),
+                }
+            )
+        )
+        raise
     fallback_channel = result.get("fallback_channel")
     if isinstance(fallback_channel, str):
+        asyncio.run(_notify_delivery_error(result))
         send_approved_contact.apply_async(
             args=[contact_id],
             queue=queue_for_channel(fallback_channel),
@@ -398,15 +457,19 @@ def send_approved_contact(self, contact_id: int):
                     str(result.get("error") or "временная ошибка"),
                 )
             )
-            return {
+            exhausted_result = {
                 **result,
                 "status": "failed",
                 "retry_exhausted": True,
             }
+            asyncio.run(_notify_delivery_error(exhausted_result))
+            return exhausted_result
         raise self.retry(
             countdown=min(900, 30 * (2 ** self.request.retries)),
             max_retries=3,
         )
+    if result.get("status") in {"failed", "requires_human"}:
+        asyncio.run(_notify_delivery_error(result))
     return result
 
 
