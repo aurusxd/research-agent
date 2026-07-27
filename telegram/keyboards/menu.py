@@ -26,7 +26,7 @@ MAIN_MENU_BUTTONS = {
 def build_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=SEARCH_BUTTON), KeyboardButton(text=REVIEW_BUTTON)],
+            [KeyboardButton(text=REVIEW_BUTTON)],
             [KeyboardButton(text=HISTORY_BUTTON), KeyboardButton(text=MAILING_BUTTON)],
             [KeyboardButton(text=STATISTICS_BUTTON), KeyboardButton(text=SETTINGS_BUTTON)],
         ],
